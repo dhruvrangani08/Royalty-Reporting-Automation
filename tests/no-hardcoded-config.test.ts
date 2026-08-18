@@ -24,14 +24,14 @@ interface Rule {
 
 const RULES: readonly Rule[] = [
   {
-    // Matches a hostname, not the vendor's name: prose may say WellnessLiving,
-    // source may never contain wellnessliving.<tld>.
+    // Anchored on real TLDs, so prose may say WellnessLiving and a settings key
+    // may be called "wellnessliving.host", but an actual host cannot appear.
     name: 'a WellnessLiving hostname (must come from WL_API_HOST)',
-    pattern: /wellnessliving\.[a-z]{2,}/i,
+    pattern: /wellnessliving\.(io|com|net|org|dev|app|co)\b/i,
   },
   {
     name: 'a GoHighLevel hostname (must come from config)',
-    pattern: /leadconnectorhq\.[a-z]{2,}/i,
+    pattern: /leadconnectorhq\.(com|io|net)\b/i,
   },
   {
     name: 'a literal supabase.co project URL (must come from SUPABASE_URL)',

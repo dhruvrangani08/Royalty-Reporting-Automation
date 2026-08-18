@@ -27,15 +27,15 @@ npm start -- healthcheck
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `npm run verify` | Everything CI runs: format check, lint, typecheck, tests |
-| `npm test` / `npm run test:watch` | Vitest |
-| `npm run test:coverage` | Vitest with 70% thresholds |
-| `npm run lint` / `npm run lint:fix` | ESLint (type-aware) |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run build` | Emits `dist/` |
-| `npm start -- <cmd>` | Runs the built CLI |
+| Command                             | What it does                                             |
+| ----------------------------------- | -------------------------------------------------------- |
+| `npm run verify`                    | Everything CI runs: format check, lint, typecheck, tests |
+| `npm test` / `npm run test:watch`   | Vitest                                                   |
+| `npm run test:coverage`             | Vitest with 70% thresholds                               |
+| `npm run lint` / `npm run lint:fix` | ESLint (type-aware)                                      |
+| `npm run typecheck`                 | `tsc --noEmit`                                           |
+| `npm run build`                     | Emits `dist/`                                            |
+| `npm start -- <cmd>`                | Runs the built CLI                                       |
 
 CLI commands: `healthcheck`, `config:check`, `config:show`, `help`.
 
@@ -48,10 +48,10 @@ CLI commands: `healthcheck`, `config:check`, `config:show`, `help`.
 
 Two environment variables bootstrap everything:
 
-| Variable | Values | Meaning |
-| --- | --- | --- |
-| `APP_ENV` | `dev` \| `prod` | Which environment bundle to load |
-| `SECRETS_PROVIDER` | `env` \| `aws-secrets-manager` | Where to load it from (default `env`) |
+| Variable           | Values                                   | Meaning                               |
+| ------------------ | ---------------------------------------- | ------------------------------------- |
+| `APP_ENV`          | `dev` \| `prod`                          | Which environment bundle to load      |
+| `SECRETS_PROVIDER` | `file` \| `env` \| `aws-secrets-manager` | Where to load it from (default `env`) |
 
 Everything else — WL host, region, business id, all credentials — is resolved at startup by
 a `SecretsProvider`:
@@ -70,8 +70,32 @@ offending key — it never starts half-configured, and never echoes a rejected v
 
 ### Providers
 
-- **`env`** — reads the key names verbatim from the process environment. Local development,
-  CI, and any host that injects env vars.
+- **`file`** — one settings file per environment, `config/settings.<APP_ENV>.json`. The
+  recommended local-development option: switching `APP_ENV` switches the whole file, so the
+  WL host, region, business id and Supabase connection always move together and cannot be
+  mixed between environments. Real files are git-ignored;
+  [config/settings.example.json](config/settings.example.json) documents the shape and is the
+  only one committed.
+
+  ```jsonc
+  {
+    "wellnessliving": {
+      "host": "…",
+      "idRegion": 2,
+      "kBusiness": "…",
+      "clientId": "…",
+      "clientSecret": "…",
+    },
+    "supabase": { "url": "https://…", "serviceRoleKey": "…" },
+    "gohighlevel": { "apiToken": "…", "locationId": "…" },
+  }
+  ```
+
+  A mistyped section (`wellnessLiving`) is rejected rather than read as absent. Override the
+  directory with `SETTINGS_DIR`.
+
+- **`env`** — reads the key names verbatim from the process environment. CI, Vercel, and any
+  host that injects env vars — anywhere a file cannot be placed.
 - **`aws-secrets-manager`** — reads one JSON secret per environment,
   `<SECRETS_PREFIX>/<APP_ENV>/config`, whose keys are the same names. Requires `AWS_REGION`.
   The AWS SDK is an optional dependency, imported lazily.
@@ -100,9 +124,9 @@ not — and cannot — run the sync itself: a Vercel function is capped at 60s o
 on Pro, while the daily sync is budgeted at two hours and the backfill at eight. Those run on
 a scheduled job elsewhere.
 
-| Path | What |
-| --- | --- |
-| `/` | Static status page (`public/index.html`), `noindex` |
+| Path          | What                                                                                                                                                             |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`           | Static status page (`public/index.html`), `noindex`                                                                                                              |
 | `/api/health` | `GET`, requires `Authorization: Bearer <HEALTHCHECK_TOKEN>`. 200 all healthy · 503 a dependency is down · 401 bad or absent token · 500 config could not resolve |
 
 `vercel.json` sets `outputDirectory: public` and a no-op-safe build; `api/health.ts` is
@@ -138,7 +162,7 @@ Three independent layers, all running in CI:
    `id_region` / `k_business` literals, bare 6+ digit numbers, JWT-shaped strings, GHL
    token shapes and `client_secret` assignments. Patterns only — the real values are not in
    the test either.
-3. **gitleaks** — scans the working tree *and the full git history* on every push
+3. **gitleaks** — scans the working tree _and the full git history_ on every push
    (`.gitleaks.toml`, `.github/workflows/ci.yml`).
 
 Credential rotation procedure: [docs/RUNBOOK.md](docs/RUNBOOK.md).

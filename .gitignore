@@ -15,6 +15,10 @@ credentials.*
 .doppler/
 service-account*.json
 
+# ---- per-environment settings files: real ones are never committed ----
+config/settings.*.json
+!config/settings.example.json
+
 # ---- node ----
 node_modules/
 dist/

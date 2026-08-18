@@ -1,11 +1,15 @@
 import { AwsSecretsManagerProvider } from './aws-secrets-manager-provider.js';
 import { EnvSecretsProvider } from './env-provider.js';
+import { FileSettingsProvider } from './file-provider.js';
 import { SecretsProviderError, type SecretsProvider } from './types.js';
 
-export const SECRETS_PROVIDER_KINDS = ['env', 'aws-secrets-manager'] as const;
+export const SECRETS_PROVIDER_KINDS = ['file', 'env', 'aws-secrets-manager'] as const;
 export type SecretsProviderKind = (typeof SECRETS_PROVIDER_KINDS)[number];
 
 export const DEFAULT_SECRETS_PREFIX = 'royalty-sync';
+
+/** Where per-environment settings files live, relative to the repo root. */
+export const DEFAULT_SETTINGS_DIR = 'config';
 
 export interface CreateSecretsProviderInput {
   kind: SecretsProviderKind;
@@ -21,6 +25,11 @@ export interface CreateSecretsProviderInput {
  */
 export function createSecretsProvider(input: CreateSecretsProviderInput): SecretsProvider {
   switch (input.kind) {
+    case 'file':
+      return new FileSettingsProvider({
+        dir: input.processEnv.SETTINGS_DIR?.trim() || DEFAULT_SETTINGS_DIR,
+      });
+
     case 'env':
       return new EnvSecretsProvider(input.processEnv);
 
@@ -44,4 +53,5 @@ export function isSecretsProviderKind(value: string): value is SecretsProviderKi
 
 export { AwsSecretsManagerProvider } from './aws-secrets-manager-provider.js';
 export { EnvSecretsProvider } from './env-provider.js';
+export { FileSettingsProvider, SETTINGS_PATHS } from './file-provider.js';
 export * from './types.js';

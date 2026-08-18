@@ -1,0 +1,22 @@
+{
+  "//": "TEMPLATE - copy to settings.dev.json or settings.prod.json and fill in. Those files are git-ignored; this one is committed. Every value here is a placeholder: no real host, region, business id or credential belongs in this file. See docs/RUNBOOK.md.",
+  "environment": "dev | prod - informational only; APP_ENV selects the file",
+
+  "wellnessliving": {
+    "host": "FILL_ME",
+    "idRegion": "FILL_ME",
+    "kBusiness": "FILL_ME",
+    "clientId": "FILL_ME",
+    "clientSecret": "FILL_ME"
+  },
+
+  "supabase": {
+    "url": "FILL_ME",
+    "serviceRoleKey": "FILL_ME"
+  },
+
+  "gohighlevel": {
+    "apiToken": "FILL_ME",
+    "locationId": "FILL_ME"
+  }
+}
