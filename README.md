@@ -10,7 +10,7 @@ Reference: `2026-08-06_HRRAFEBAV_Sync-Architecture_v1.md` §2a · PRD module M01
 
 ## Requirements
 
-- Node.js ≥ 20.11 (`.nvmrc` pins 20.11.0; CI runs 20 and 22)
+- Node.js 22.x (`.nvmrc` pins 22.20.0; CI runs 22; Node 20 is end-of-life)
 - npm 10+
 
 ## Quick start

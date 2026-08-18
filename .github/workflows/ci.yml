@@ -20,7 +20,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22']
+        # Must stay in sync with engines.node in package.json and .nvmrc.
+        # Node 20 went end-of-life in April 2026 and is deliberately not tested.
+        node: ['22']
     steps:
       - uses: actions/checkout@v4
 
