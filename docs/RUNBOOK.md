@@ -36,27 +36,33 @@ from every log line and are the ones the rotation procedures below apply to.
 
 | Environment       | Storage                                     | How the app reads it                   |
 | ----------------- | ------------------------------------------- | -------------------------------------- |
-| Local development | `.env` in the repo root (git-ignored)       | `SECRETS_PROVIDER=env`                 |
-| CI                | GitHub Actions secrets                      | not needed — CI runs no live calls     |
+| Local development | `config/settings.<env>.json` (git-ignored)  | `SECRETS_PROVIDER=file`                |
+| Local (alt)       | `.env` in the repo root (git-ignored)       | `SECRETS_PROVIDER=env`                 |
+| CI                | nothing — CI makes no live calls            | n/a                                    |
+| Vercel            | Project Settings → Environment Variables    | `SECRETS_PROVIDER=env`                 |
 | Deployed dev      | secrets manager, `royalty-sync/dev/config`  | `SECRETS_PROVIDER=aws-secrets-manager` |
 | Deployed prod     | secrets manager, `royalty-sync/prod/config` | `SECRETS_PROVIDER=aws-secrets-manager` |
 
-The deployed bundles are one JSON object per environment whose keys are exactly the names in
-§1:
+One JSON object per environment, in the same shape everywhere — the local settings file and
+the stored secret are byte-identical documents:
 
 ```json
 {
-  "WL_API_HOST": "...",
-  "WL_ID_REGION": "...",
-  "WL_K_BUSINESS": "...",
-  "WL_CLIENT_ID": "...",
-  "WL_CLIENT_SECRET": "...",
-  "SUPABASE_URL": "https://...",
-  "SUPABASE_SERVICE_ROLE_KEY": "...",
-  "GHL_API_TOKEN": "...",
-  "GHL_LOCATION_ID": "..."
+  "environment": "prod",
+  "wellnessliving": {
+    "host": "...",
+    "idRegion": 1,
+    "kBusiness": "...",
+    "clientId": "...",
+    "clientSecret": "..."
+  },
+  "supabase": { "url": "https://...", "serviceRoleKey": "..." },
+  "gohighlevel": { "apiToken": "...", "locationId": "..." }
 }
 ```
+
+A flat object keyed by the §1 names is also accepted, so an already-stored flat secret keeps
+working.
 
 ### Creating the bundles
 
@@ -140,7 +146,7 @@ window where the old key stops working.
    ```bash
    aws secretsmanager put-secret-value \
      --secret-id royalty-sync/prod/config \
-     --secret-string file://prod-config.json
+     --secret-string file://config/settings.prod.json
    ```
 4. Restart the sync service.
 5. `APP_ENV=prod npm start -- healthcheck` → expect `"ok": true`.
