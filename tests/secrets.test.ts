@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AwsSecretsManagerProvider } from '../src/secrets/aws-secrets-manager-provider.js';
 import { EnvSecretsProvider } from '../src/secrets/env-provider.js';
+import { FileSettingsProvider } from '../src/secrets/file-provider.js';
 import { createSecretsProvider, isSecretsProviderKind } from '../src/secrets/index.js';
 import { SecretsProviderError } from '../src/secrets/types.js';
 import { FAKE_BUNDLES } from './helpers/fixtures.js';
@@ -79,5 +80,49 @@ describe('createSecretsProvider', () => {
   it('validates provider names', () => {
     expect(isSecretsProviderKind('env')).toBe(true);
     expect(isSecretsProviderKind('vault')).toBe(false);
+  });
+});
+
+describe('one settings shape across every provider', () => {
+  const nested = {
+    environment: 'prod',
+    wellnessliving: {
+      host: 'wl-live.example.test',
+      idRegion: 1,
+      kBusiness: '222222',
+      clientId: 'prod-client-id-0000',
+      clientSecret: 'prod-client-secret-0000',
+    },
+    supabase: {
+      url: 'https://prod.supabase.example.test',
+      serviceRoleKey: 'prod-service-role-key-0000',
+    },
+    gohighlevel: { apiToken: 'prod-ghl-token-0000', locationId: 'prod-location' },
+  };
+
+  it('reads the nested settings file shape straight out of the secrets manager', async () => {
+    // The property that makes "upload config/settings.prod.json verbatim" safe:
+    // the file provider and the secrets manager must agree on the shape, so no
+    // hand-conversion can drop or mistype a key on the way in.
+    const fromSecretsManager = await new StubAwsProvider(JSON.stringify(nested)).load('prod');
+    const fromFile = await new FileSettingsProvider({
+      dir: '/settings',
+      readFileImpl: () => Promise.resolve(JSON.stringify(nested)),
+    }).load('prod');
+
+    expect(fromSecretsManager).toEqual(fromFile);
+    expect(fromSecretsManager.WL_ID_REGION).toBe('1');
+    expect(fromSecretsManager.WL_K_BUSINESS).toBe('222222');
+  });
+
+  it('still accepts a legacy flat bundle in the secrets manager', async () => {
+    const flat = await new StubAwsProvider(JSON.stringify(FAKE_BUNDLES.dev)).load('dev');
+    expect(flat).toEqual(FAKE_BUNDLES.dev);
+  });
+
+  it('rejects a mistyped section wherever it appears', async () => {
+    await expect(
+      new StubAwsProvider(JSON.stringify({ wellnessLiving: { host: 'x' } })).load('prod'),
+    ).rejects.toThrow(/unrecognised section/);
   });
 });

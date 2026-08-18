@@ -12,17 +12,17 @@ Reference: `2026-08-06_HRRAFEBAV_Sync-Architecture_v1.md` §2a · PRD module M01
 Nine keys per environment. `dev` and `prod` values are **all** different — assume nothing
 carries over.
 
-| Key | Kind | Rotatable | Owner / source |
-| --- | --- | --- | --- |
-| `WL_API_HOST` | environment coordinate | no | WellnessLiving (UAT host vs production host) |
-| `WL_ID_REGION` | environment coordinate | no | WellnessLiving (docs use 2, production uses 1) |
-| `WL_K_BUSINESS` | environment coordinate | no | WellnessLiving business record |
-| `WL_CLIENT_ID` | credential | yes | WL Integrations team |
-| `WL_CLIENT_SECRET` | credential | yes | WL Integrations team |
-| `SUPABASE_URL` | environment coordinate | no | Supabase project settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | credential | yes | Supabase project settings → API keys |
-| `GHL_API_TOKEN` | credential | yes | GoHighLevel private integration |
-| `GHL_LOCATION_ID` | environment coordinate | no | GoHighLevel location |
+| Key                         | Kind                   | Rotatable | Owner / source                                 |
+| --------------------------- | ---------------------- | --------- | ---------------------------------------------- |
+| `WL_API_HOST`               | environment coordinate | no        | WellnessLiving (UAT host vs production host)   |
+| `WL_ID_REGION`              | environment coordinate | no        | WellnessLiving (docs use 2, production uses 1) |
+| `WL_K_BUSINESS`             | environment coordinate | no        | WellnessLiving business record                 |
+| `WL_CLIENT_ID`              | credential             | yes       | WL Integrations team                           |
+| `WL_CLIENT_SECRET`          | credential             | yes       | WL Integrations team                           |
+| `SUPABASE_URL`              | environment coordinate | no        | Supabase project settings → API                |
+| `SUPABASE_SERVICE_ROLE_KEY` | credential             | yes       | Supabase project settings → API keys           |
+| `GHL_API_TOKEN`             | credential             | yes       | GoHighLevel private integration                |
+| `GHL_LOCATION_ID`           | environment coordinate | no        | GoHighLevel location                           |
 
 The four marked **credential** are also the four in `CREDENTIAL_KEYS` — they are redacted
 from every log line and are the ones the rotation procedures below apply to.
@@ -34,12 +34,12 @@ from every log line and are the ones the rotation procedures below apply to.
 
 ## 2. Where they live
 
-| Environment | Storage | How the app reads it |
-| --- | --- | --- |
-| Local development | `.env` in the repo root (git-ignored) | `SECRETS_PROVIDER=env` |
-| CI | GitHub Actions secrets | not needed — CI runs no live calls |
-| Deployed dev | secrets manager, `royalty-sync/dev/config` | `SECRETS_PROVIDER=aws-secrets-manager` |
-| Deployed prod | secrets manager, `royalty-sync/prod/config` | `SECRETS_PROVIDER=aws-secrets-manager` |
+| Environment       | Storage                                     | How the app reads it                   |
+| ----------------- | ------------------------------------------- | -------------------------------------- |
+| Local development | `.env` in the repo root (git-ignored)       | `SECRETS_PROVIDER=env`                 |
+| CI                | GitHub Actions secrets                      | not needed — CI runs no live calls     |
+| Deployed dev      | secrets manager, `royalty-sync/dev/config`  | `SECRETS_PROVIDER=aws-secrets-manager` |
+| Deployed prod     | secrets manager, `royalty-sync/prod/config` | `SECRETS_PROVIDER=aws-secrets-manager` |
 
 The deployed bundles are one JSON object per environment whose keys are exactly the names in
 §1:
@@ -60,25 +60,42 @@ The deployed bundles are one JSON object per environment whose keys are exactly 
 
 ### Creating the bundles
 
+Every provider reads the **same** JSON shape, so the settings file you already filled in
+uploads verbatim — no conversion, and therefore no chance of a hand-conversion dropping a key:
+
 ```bash
-# once per environment; replace the file path with your locally prepared JSON
 aws secretsmanager create-secret \
   --name royalty-sync/dev/config \
   --description "royalty-sync dev configuration" \
-  --secret-string file://dev-config.json
+  --secret-string file://config/settings.dev.json
 
 aws secretsmanager create-secret \
   --name royalty-sync/prod/config \
   --description "royalty-sync prod configuration" \
-  --secret-string file://prod-config.json
+  --secret-string file://config/settings.prod.json
 ```
 
-Shred the local JSON afterwards (`shred -u dev-config.json`, or delete it and empty the
-recycle bin on Windows). Never place it inside this repository, even temporarily — the
-`.gitignore` covers `*.json` credential names but not every possible filename.
+Updating later is the same command with `put-secret-value --secret-id`.
 
-The IAM policy for the sync service needs `secretsmanager:GetSecretValue` on
+The settings files are git-ignored, so they are safe where they sit; there is no temporary
+copy to shred. The IAM policy for the sync service needs `secretsmanager:GetSecretValue` on
 `royalty-sync/<env>/config` and nothing else.
+
+### If you are not using AWS
+
+The application does not care which manager holds the values — it only needs one of the three
+providers to resolve them. Pick whichever you already operate:
+
+| Manager                      | Store the values as                                                       | App reads them via                                          |
+| ---------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| AWS Secrets Manager          | one secret per env, `royalty-sync/<env>/config`, body = the settings JSON | `SECRETS_PROVIDER=aws-secrets-manager`                      |
+| GitHub Actions secrets       | one repository secret per key (`WL_CLIENT_SECRET`, …)                     | `SECRETS_PROVIDER=env`, injected into the job               |
+| Vercel environment variables | one variable per key, per environment                                     | `SECRETS_PROVIDER=env`                                      |
+| Doppler / Vault / GCP        | one bundle per env                                                        | add a provider class — one `case` in `src/secrets/index.ts` |
+
+GitHub and Vercel are the two you already have, and both satisfy "credentials live outside the
+repository and are injected at runtime". Neither gives you central rotation across
+environments, which is the reason to prefer a real manager once the project has one.
 
 ---
 
@@ -127,7 +144,7 @@ window where the old key stops working.
    ```
 4. Restart the sync service.
 5. `APP_ENV=prod npm start -- healthcheck` → expect `"ok": true`.
-6. If it reports *"reachable, but the service role key was rejected"*, the new key was not
+6. If it reports _"reachable, but the service role key was rejected"_, the new key was not
    copied correctly. Re-copy from the dashboard; do not roll again.
 
 Schedule: every 90 days, and immediately on any suspected exposure.

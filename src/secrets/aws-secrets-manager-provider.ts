@@ -1,5 +1,5 @@
+import { bundleFromSettings } from './settings-shape.js';
 import {
-  SECRET_KEYS,
   SecretsProviderError,
   type AppEnv,
   type SecretBundle,
@@ -54,27 +54,9 @@ export class AwsSecretsManagerProvider implements SecretsProvider {
       );
     }
 
-    const record = parsed as Record<string, unknown>;
-    const bundle: SecretBundle = {};
-    for (const key of SECRET_KEYS) {
-      const value = record[key];
-      if (value === undefined || value === null) continue;
-
-      // Numbers and booleans are accepted because a JSON secret is easy to
-      // author with `"WL_ID_REGION": 2`. Anything else is a mistake in the
-      // secret itself and must not be silently stringified to [object Object].
-      if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
-        throw new SecretsProviderError(
-          this.name,
-          `key "${key}" in secret "${secretId}" must be a string, number or boolean`,
-        );
-      }
-
-      const trimmed = String(value).trim();
-      if (trimmed.length === 0) continue;
-      bundle[key] = trimmed;
-    }
-    return bundle;
+    // Accepts the same shape as config/settings.<env>.json, so the settings file
+    // can be uploaded verbatim. A flat bundle of SECRET_KEYS also still works.
+    return bundleFromSettings(parsed as Record<string, unknown>, this.name, `secret "${secretId}"`);
   }
 
   /** Split out so tests can drive the parsing path without an AWS account. */

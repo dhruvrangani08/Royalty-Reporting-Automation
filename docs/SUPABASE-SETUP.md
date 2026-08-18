@@ -4,8 +4,8 @@ Creating the two Supabase projects requires an authenticated Supabase account an
 part of this task that cannot be scripted from this repository. Follow the steps below once
 per environment; the sync service is already written to work against both.
 
-Acceptance target: *dev and prod Supabase projects exist and both are reachable from the
-sync service* — provable with `npm start -- healthcheck` at the end of §4.
+Acceptance target: _dev and prod Supabase projects exist and both are reachable from the
+sync service_ — provable with `npm start -- healthcheck` at the end of §4.
 
 ---
 
@@ -13,12 +13,12 @@ sync service* — provable with `npm start -- healthcheck` at the end of §4.
 
 In the Supabase dashboard, create **two separate projects** in the same organisation:
 
-| Setting | dev | prod |
-| --- | --- | --- |
-| Name | `royalty-report-dev` | `royalty-report-prod` |
-| Region | closest to the sync service host | closest to the sync service host |
-| Database password | generated, stored in the password manager | generated, stored in the password manager |
-| Plan | Free is sufficient for dev | Pro (needed for daily backups + no pausing) |
+| Setting           | dev                                       | prod                                        |
+| ----------------- | ----------------------------------------- | ------------------------------------------- |
+| Name              | `royalty-report-dev`                      | `royalty-report-prod`                       |
+| Region            | closest to the sync service host          | closest to the sync service host            |
+| Database password | generated, stored in the password manager | generated, stored in the password manager   |
+| Plan              | Free is sufficient for dev                | Pro (needed for daily backups + no pausing) |
 
 Two projects, not two schemas in one project. The service role key bypasses RLS, so a shared
 project would let a dev-side mistake write production rows.
@@ -29,9 +29,9 @@ project would let a dev-side mistake write production rows.
 
 ## 2. Collect the values
 
-| Dashboard location | Field | Goes into |
-| --- | --- | --- |
-| Settings → **Data API** | Project URL | `SUPABASE_URL` |
+| Dashboard location                    | Field                                              | Goes into                   |
+| ------------------------------------- | -------------------------------------------------- | --------------------------- |
+| Settings → **Data API**               | Project URL                                        | `SUPABASE_URL`              |
 | Settings → **API Keys** → Secret keys | the `sb_secret_…` value (reveal with the eye icon) | `SUPABASE_SERVICE_ROLE_KEY` |
 
 The Project URL is **not** on the API Keys page — it lives under Data API. It is also always
@@ -39,15 +39,15 @@ The Project URL is **not** on the API Keys page — it lives under Data API. It 
 
 Supabase now issues two key types, and the dashboard shows both systems:
 
-| Key | Privileges | Use here |
-| --- | --- | --- |
-| `sb_publishable_…` | none beyond RLS policies; safe in a browser | ❌ never — writes will fail |
-| `sb_secret_…` | full, bypasses RLS | ✅ this one |
-| legacy `anon` JWT | same as publishable | ❌ |
-| legacy `service_role` JWT | same as secret | ✅ if the project predates the new keys |
+| Key                       | Privileges                                  | Use here                                |
+| ------------------------- | ------------------------------------------- | --------------------------------------- |
+| `sb_publishable_…`        | none beyond RLS policies; safe in a browser | ❌ never — writes will fail             |
+| `sb_secret_…`             | full, bypasses RLS                          | ✅ this one                             |
+| legacy `anon` JWT         | same as publishable                         | ❌                                      |
+| legacy `service_role` JWT | same as secret                              | ✅ if the project predates the new keys |
 
 The env var is still named `SUPABASE_SERVICE_ROLE_KEY` because that is what the privilege
-level *means*; either the `sb_secret_…` key or a legacy `service_role` JWT satisfies it.
+level _means_; either the `sb_secret_…` key or a legacy `service_role` JWT satisfies it.
 
 Do not paste either value into this repository, a ticket, or a chat message. They go straight
 into the secrets manager — see [RUNBOOK.md §2](RUNBOOK.md).
@@ -95,12 +95,12 @@ Expected, for each:
 Exit code 0. The probe hits the PostgREST root rather than a table, so it works before any
 schema exists.
 
-| Reported detail | Meaning | Fix |
-| --- | --- | --- |
-| `reachable, service role key accepted` | done | — |
-| `reachable, but the service role key was rejected` | project answered, key wrong | re-copy the `service_role` key |
-| `not reachable: TimeoutError` | wrong URL, network block, or paused project | check `SUPABASE_URL`, check project status |
-| `not reachable: TypeError` | URL does not resolve | check `SUPABASE_URL` for typos |
+| Reported detail                                    | Meaning                                     | Fix                                        |
+| -------------------------------------------------- | ------------------------------------------- | ------------------------------------------ |
+| `reachable, service role key accepted`             | done                                        | —                                          |
+| `reachable, but the service role key was rejected` | project answered, key wrong                 | re-copy the `service_role` key             |
+| `not reachable: TimeoutError`                      | wrong URL, network block, or paused project | check `SUPABASE_URL`, check project status |
+| `not reachable: TypeError`                         | URL does not resolve                        | check `SUPABASE_URL` for typos             |
 
 ## 5. Settings worth applying now
 

@@ -1,36 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
+import { bundleFromSettings } from './settings-shape.js';
 import {
   SecretsProviderError,
   type AppEnv,
   type SecretBundle,
-  type SecretKey,
   type SecretsProvider,
 } from './types.js';
-
-/**
- * Maps the human-authored settings file shape onto the flat key names the rest
- * of the application uses.
- *
- * Single-sourced here so the file format, the example file and the validation
- * error messages can never disagree about what a setting is called.
- */
-export const SETTINGS_PATHS = {
-  'wellnessliving.host': 'WL_API_HOST',
-  'wellnessliving.idRegion': 'WL_ID_REGION',
-  'wellnessliving.kBusiness': 'WL_K_BUSINESS',
-  'wellnessliving.clientId': 'WL_CLIENT_ID',
-  'wellnessliving.clientSecret': 'WL_CLIENT_SECRET',
-  'supabase.url': 'SUPABASE_URL',
-  'supabase.serviceRoleKey': 'SUPABASE_SERVICE_ROLE_KEY',
-  'gohighlevel.apiToken': 'GHL_API_TOKEN',
-  'gohighlevel.locationId': 'GHL_LOCATION_ID',
-} as const satisfies Record<string, SecretKey>;
-
-/** Keys allowed at the top level of a settings file but carrying no setting. */
-const METADATA_KEYS = new Set(['$schema', '//', 'note', 'environment']);
-
-const SECTIONS = new Set(['wellnessliving', 'supabase', 'gohighlevel']);
 
 export interface FileSettingsProviderOptions {
   /** Directory holding settings.<env>.json. Relative paths resolve from cwd. */
@@ -49,6 +25,9 @@ export interface FileSettingsProviderOptions {
  * id_region, k_business and the Supabase connection all change together and
  * cannot be mixed between environments by accident. The real files are
  * git-ignored; config/settings.example.json documents the shape.
+ *
+ * The file format is identical to what the secrets manager stores, so the same
+ * JSON can be uploaded verbatim - see docs/RUNBOOK.md.
  */
 export class FileSettingsProvider implements SecretsProvider {
   readonly name = 'file';
@@ -87,26 +66,7 @@ export class FileSettingsProvider implements SecretsProvider {
       throw new SecretsProviderError(this.name, `${path} must contain a JSON object`);
     }
 
-    const root = parsed as Record<string, unknown>;
-    this.rejectUnknownSections(root, path);
-
-    const bundle: SecretBundle = {};
-    for (const [dotted, key] of Object.entries(SETTINGS_PATHS)) {
-      const value = readDotted(root, dotted);
-      if (value === undefined || value === null) continue;
-
-      if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
-        throw new SecretsProviderError(
-          this.name,
-          `${dotted} in ${path} must be a string, number or boolean`,
-        );
-      }
-
-      const trimmed = String(value).trim();
-      if (trimmed.length === 0) continue;
-      bundle[key] = trimmed;
-    }
-    return bundle;
+    return bundleFromSettings(parsed as Record<string, unknown>, this.name, path);
   }
 
   private async readSettingsFile(path: string, env: AppEnv): Promise<string> {
@@ -115,8 +75,8 @@ export class FileSettingsProvider implements SecretsProvider {
     } catch (cause) {
       const code = (cause as { code?: string } | null)?.code;
       if (code === 'ENOENT') {
-        // The single most common first-run failure, so it gets a message that
-        // says exactly what to do rather than a bare stack trace.
+        // The most common first-run failure, so it gets a message that says
+        // exactly what to do rather than a bare stack trace.
         throw new SecretsProviderError(
           this.name,
           `no settings file for APP_ENV="${env}".\n` +
@@ -132,27 +92,6 @@ export class FileSettingsProvider implements SecretsProvider {
       throw new SecretsProviderError(this.name, `could not read ${path}`, { cause });
     }
   }
-
-  /** A typo like "wellnessLiving" must fail loudly, not silently read as absent. */
-  private rejectUnknownSections(root: Record<string, unknown>, path: string): void {
-    const unknown = Object.keys(root).filter(
-      (key) => !SECTIONS.has(key) && !METADATA_KEYS.has(key),
-    );
-    if (unknown.length > 0) {
-      throw new SecretsProviderError(
-        this.name,
-        `unrecognised section(s) in ${path}: ${unknown.join(', ')}. ` +
-          `Expected only: ${[...SECTIONS].join(', ')}. Compare against config/settings.example.json.`,
-      );
-    }
-  }
 }
 
-function readDotted(root: Record<string, unknown>, dotted: string): unknown {
-  let current: unknown = root;
-  for (const part of dotted.split('.')) {
-    if (typeof current !== 'object' || current === null) return undefined;
-    current = (current as Record<string, unknown>)[part];
-  }
-  return current;
-}
+export { SETTINGS_PATHS } from './settings-shape.js';
