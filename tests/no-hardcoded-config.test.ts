@@ -12,7 +12,10 @@ import { describe, expect, it } from 'vitest';
  */
 // fileURLToPath, not URL.pathname: on Windows the latter yields "/F:/..." with
 // percent-encoded spaces.
-const SRC = fileURLToPath(new URL('../src/', import.meta.url));
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
+
+/** Every directory whose committed source must be free of environment values. */
+const SCANNED_DIRS = ['src', 'api'];
 
 interface Rule {
   readonly name: string;
@@ -76,10 +79,16 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe('committed source contains no environment values', () => {
-  const files = sourceFiles(SRC);
+  const files = SCANNED_DIRS.flatMap((dir) => sourceFiles(join(ROOT, dir)));
 
-  it('finds source files to scan', () => {
+  it('scans every source directory, including the deployed api/ handlers', () => {
     expect(files.length).toBeGreaterThan(5);
+    for (const dir of SCANNED_DIRS) {
+      expect(
+        files.some((f) => relative(ROOT, f).split(sep)[0] === dir),
+        `no files scanned in ${dir}/`,
+      ).toBe(true);
+    }
   });
 
   it.each(RULES)('contains no $name', ({ pattern }) => {
@@ -89,7 +98,7 @@ describe('committed source contains no environment values', () => {
       const lines = readFileSync(file, 'utf8').split(/\r?\n/);
       lines.forEach((line, index) => {
         if (pattern.test(line)) {
-          const shown = relative(SRC, file).split(sep).join('/');
+          const shown = relative(ROOT, file).split(sep).join('/');
           offenders.push(`${shown}:${String(index + 1)}`);
         }
       });

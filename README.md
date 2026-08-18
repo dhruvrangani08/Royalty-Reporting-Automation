@@ -93,6 +93,42 @@ tests/         48 tests, including a guard that scans src/ for leaked values
 docs/          RUNBOOK.md (rotation), SUPABASE-SETUP.md (project creation)
 ```
 
+## Deployment (Vercel)
+
+Vercel deploys **only** a token-protected health endpoint plus a static status page. It does
+not — and cannot — run the sync itself: a Vercel function is capped at 60s on Hobby and 300s
+on Pro, while the daily sync is budgeted at two hours and the backfill at eight. Those run on
+a scheduled job elsewhere.
+
+| Path | What |
+| --- | --- |
+| `/` | Static status page (`public/index.html`), `noindex` |
+| `/api/health` | `GET`, requires `Authorization: Bearer <HEALTHCHECK_TOKEN>`. 200 all healthy · 503 a dependency is down · 401 bad or absent token · 500 config could not resolve |
+
+`vercel.json` sets `outputDirectory: public` and a no-op-safe build; `api/health.ts` is
+compiled by Vercel's own builder.
+
+### Required Vercel environment variables
+
+Project Settings → Environment Variables. The endpoint fails closed until all are present:
+
+`APP_ENV` · `SECRETS_PROVIDER` · `WL_API_HOST` · `WL_ID_REGION` · `WL_K_BUSINESS` ·
+`WL_CLIENT_ID` · `WL_CLIENT_SECRET` · `SUPABASE_URL` · `SUPABASE_SERVICE_ROLE_KEY` ·
+`GHL_API_TOKEN` · `GHL_LOCATION_ID` · `HEALTHCHECK_TOKEN`
+
+`HEALTHCHECK_TOKEN` is a secret you generate — treat it like any other credential. Without
+it the endpoint returns 401 to everyone, which is the intended locked state.
+
+### Keeping the build warning-free
+
+Set Project Settings → **Node.js Version to 22.x** so it agrees with `engines.node`. A
+mismatch makes Vercel print a notice on every build saying `package.json` wins.
+
+`overrides.glob` in `package.json` exists to silence a deprecation warning: `test-exclude`
+(via `@vitest/coverage-v8`) pins `glob@^10`, and every version below 13 is deprecated
+upstream. Pinned to `^13.0.6`; verified coverage still works. Remove it once vitest ships a
+current glob.
+
 ## Secret hygiene
 
 Three independent layers, all running in CI:

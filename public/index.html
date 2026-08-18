@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Royalty Reporting Sync</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --fg: #1a1a1a;
+        --muted: #5c5c5c;
+        --bg: #fbfbfa;
+        --line: #e3e3e0;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #ececec;
+          --muted: #a0a0a0;
+          --bg: #191918;
+          --line: #333331;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 3rem 1.5rem;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          15px/1.6 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          sans-serif;
+        display: flex;
+        justify-content: center;
+      }
+      main {
+        max-width: 34rem;
+      }
+      h1 {
+        font-size: 1.15rem;
+        margin: 0 0 0.25rem;
+      }
+      p {
+        color: var(--muted);
+        margin: 0 0 1.25rem;
+      }
+      dl {
+        border-top: 1px solid var(--line);
+        margin: 0;
+        padding-top: 1rem;
+      }
+      dt {
+        font-weight: 600;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      dd {
+        margin: 0.15rem 0 1rem;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9em;
+        background: color-mix(in srgb, var(--fg) 8%, transparent);
+        padding: 0.1em 0.35em;
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Royalty Reporting Sync</h1>
+      <p>
+        Headless service. There is no user interface here — the student portal is a separate
+        application.
+      </p>
+      <dl>
+        <dt>Health probe</dt>
+        <dd>
+          <code>GET /api/health</code> — requires
+          <code>Authorization: Bearer &lt;HEALTHCHECK_TOKEN&gt;</code>. Returns 200 when config
+          resolves and Supabase is reachable, 503 when a dependency is down, 401 otherwise.
+        </dd>
+
+        <dt>Where the sync runs</dt>
+        <dd>
+          Not here. A serverless function is capped at 60 seconds; the daily sync is budgeted at two
+          hours and the backfill at eight, so both run on a scheduled job outside Vercel.
+        </dd>
+      </dl>
+    </main>
+  </body>
+</html>
