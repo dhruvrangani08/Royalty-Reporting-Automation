@@ -1,0 +1,100 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+
+/**
+ * Enforces the acceptance criterion that no credential, host or region value
+ * appears anywhere in the committed source.
+ *
+ * The rules below are PATTERNS, not values: writing the real prod host, region
+ * or business id into this test would be the very thing it exists to prevent.
+ */
+// fileURLToPath, not URL.pathname: on Windows the latter yields "/F:/..." with
+// percent-encoded spaces.
+const SRC = fileURLToPath(new URL('../src/', import.meta.url));
+
+interface Rule {
+  readonly name: string;
+  readonly pattern: RegExp;
+}
+
+const RULES: readonly Rule[] = [
+  {
+    // Matches a hostname, not the vendor's name: prose may say WellnessLiving,
+    // source may never contain wellnessliving.<tld>.
+    name: 'a WellnessLiving hostname (must come from WL_API_HOST)',
+    pattern: /wellnessliving\.[a-z]{2,}/i,
+  },
+  {
+    name: 'a GoHighLevel hostname (must come from config)',
+    pattern: /leadconnectorhq\.[a-z]{2,}/i,
+  },
+  {
+    name: 'a literal supabase.co project URL (must come from SUPABASE_URL)',
+    pattern: /[a-z0-9-]+\.supabase\.(co|in)\b/i,
+  },
+  {
+    name: 'an assigned id_region literal (must come from WL_ID_REGION)',
+    pattern: /id_region\s*[=:]\s*['"`]?\d/,
+  },
+  {
+    name: 'an assigned k_business literal (must come from WL_K_BUSINESS)',
+    pattern: /k_business\s*[=:]\s*['"`]?\d/,
+  },
+  {
+    name: 'a bare 6+ digit numeric literal (looks like a k_ key or business id)',
+    // Allows underscore-separated numbers such as 10_000 used for timeouts.
+    pattern: /(?<![\w.])\d{6,}(?![\w_])/,
+  },
+  {
+    name: 'a JWT-shaped string (Supabase legacy anon/service_role key)',
+    pattern: /eyJ[A-Za-z0-9_-]{8,}\./,
+  },
+  {
+    name: 'a Supabase secret API key (new sb_secret_ format)',
+    pattern: /sb_secret_[A-Za-z0-9_-]{8,}/,
+  },
+  {
+    name: 'a GoHighLevel private integration token',
+    pattern: /pit-[0-9a-f]{8}-/i,
+  },
+  {
+    name: 'an OAuth client secret assignment',
+    pattern: /client_secret\s*[=:]\s*['"`][^'"`<]{6,}/i,
+  },
+];
+
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
+    else if (entry.endsWith('.ts')) out.push(full);
+  }
+  return out;
+}
+
+describe('committed source contains no environment values', () => {
+  const files = sourceFiles(SRC);
+
+  it('finds source files to scan', () => {
+    expect(files.length).toBeGreaterThan(5);
+  });
+
+  it.each(RULES)('contains no $name', ({ pattern }) => {
+    const offenders: string[] = [];
+
+    for (const file of files) {
+      const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+      lines.forEach((line, index) => {
+        if (pattern.test(line)) {
+          const shown = relative(SRC, file).split(sep).join('/');
+          offenders.push(`${shown}:${String(index + 1)}`);
+        }
+      });
+    }
+
+    expect(offenders, `matched at: ${offenders.join(', ')}`).toEqual([]);
+  });
+});

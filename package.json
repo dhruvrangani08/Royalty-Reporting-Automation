@@ -1,0 +1,44 @@
+{
+  "name": "royalty-sync-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WellnessLiving -> GoHighLevel -> Supabase sync service (HRRAFEBAV)",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "bin": {
+    "royalty-sync": "./dist/cli/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "start": "node --env-file-if-exists=.env dist/cli/main.js",
+    "dev": "node --experimental-strip-types --env-file-if-exists=.env src/cli/main.ts",
+    "healthcheck": "npm run --silent dev -- healthcheck"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.658.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.11.1",
+    "@types/node": "^20.16.10",
+    "@vitest/coverage-v8": "^2.1.2",
+    "eslint": "^9.11.1",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.2",
+    "typescript-eslint": "^8.8.0",
+    "vitest": "^2.1.2"
+  }
+}

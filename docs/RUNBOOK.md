@@ -1,0 +1,191 @@
+# Runbook — environment configuration and credential rotation
+
+Project `HRRAFEBAV`. Covers the sync service foundation layer: what secrets exist, where
+they live, how the app reads them, and how to rotate each one.
+
+Reference: `2026-08-06_HRRAFEBAV_Sync-Architecture_v1.md` §2a · PRD module M01.
+
+---
+
+## 1. The secret inventory
+
+Nine keys per environment. `dev` and `prod` values are **all** different — assume nothing
+carries over.
+
+| Key | Kind | Rotatable | Owner / source |
+| --- | --- | --- | --- |
+| `WL_API_HOST` | environment coordinate | no | WellnessLiving (UAT host vs production host) |
+| `WL_ID_REGION` | environment coordinate | no | WellnessLiving (docs use 2, production uses 1) |
+| `WL_K_BUSINESS` | environment coordinate | no | WellnessLiving business record |
+| `WL_CLIENT_ID` | credential | yes | WL Integrations team |
+| `WL_CLIENT_SECRET` | credential | yes | WL Integrations team |
+| `SUPABASE_URL` | environment coordinate | no | Supabase project settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | credential | yes | Supabase project settings → API keys |
+| `GHL_API_TOKEN` | credential | yes | GoHighLevel private integration |
+| `GHL_LOCATION_ID` | environment coordinate | no | GoHighLevel location |
+
+The four marked **credential** are also the four in `CREDENTIAL_KEYS` — they are redacted
+from every log line and are the ones the rotation procedures below apply to.
+
+> `SUPABASE_SERVICE_ROLE_KEY` bypasses row-level security. Sync workers only. It must never
+> reach the portal, a browser bundle, or any client-side code.
+
+---
+
+## 2. Where they live
+
+| Environment | Storage | How the app reads it |
+| --- | --- | --- |
+| Local development | `.env` in the repo root (git-ignored) | `SECRETS_PROVIDER=env` |
+| CI | GitHub Actions secrets | not needed — CI runs no live calls |
+| Deployed dev | secrets manager, `royalty-sync/dev/config` | `SECRETS_PROVIDER=aws-secrets-manager` |
+| Deployed prod | secrets manager, `royalty-sync/prod/config` | `SECRETS_PROVIDER=aws-secrets-manager` |
+
+The deployed bundles are one JSON object per environment whose keys are exactly the names in
+§1:
+
+```json
+{
+  "WL_API_HOST": "...",
+  "WL_ID_REGION": "...",
+  "WL_K_BUSINESS": "...",
+  "WL_CLIENT_ID": "...",
+  "WL_CLIENT_SECRET": "...",
+  "SUPABASE_URL": "https://...",
+  "SUPABASE_SERVICE_ROLE_KEY": "...",
+  "GHL_API_TOKEN": "...",
+  "GHL_LOCATION_ID": "..."
+}
+```
+
+### Creating the bundles
+
+```bash
+# once per environment; replace the file path with your locally prepared JSON
+aws secretsmanager create-secret \
+  --name royalty-sync/dev/config \
+  --description "royalty-sync dev configuration" \
+  --secret-string file://dev-config.json
+
+aws secretsmanager create-secret \
+  --name royalty-sync/prod/config \
+  --description "royalty-sync prod configuration" \
+  --secret-string file://prod-config.json
+```
+
+Shred the local JSON afterwards (`shred -u dev-config.json`, or delete it and empty the
+recycle bin on Windows). Never place it inside this repository, even temporarily — the
+`.gitignore` covers `*.json` credential names but not every possible filename.
+
+The IAM policy for the sync service needs `secretsmanager:GetSecretValue` on
+`royalty-sync/<env>/config` and nothing else.
+
+---
+
+## 3. Verifying a configuration
+
+```bash
+# no network calls; proves every key is present and well-formed
+APP_ENV=dev npm start -- config:check
+
+# what the app resolved, with credentials fingerprinted
+APP_ENV=dev npm start -- config:show
+
+# proves the Supabase project answers and accepts the service role key
+APP_ENV=dev npm start -- healthcheck
+```
+
+`config:show` prints credentials as `abc...yz (len 219)`. Use the length and the first three
+characters to confirm a rotation took effect without ever printing the value.
+
+Exit codes: `0` all good · `1` a check failed or startup failed · `2` bad CLI usage.
+
+---
+
+## 4. Rotation procedures
+
+General rules, in order of importance:
+
+1. **Rotate `prod` and `dev` separately.** Never reuse a value across environments.
+2. **Write the new value to the secrets manager first, then restart the service.** The app
+   reads secrets once at startup, so a running process keeps the old value until restarted.
+3. **Verify with `healthcheck` before deleting the old credential.**
+4. **Record the rotation** (date, key, who) in the operations log.
+
+### 4a. `SUPABASE_SERVICE_ROLE_KEY`
+
+Supabase does not support two simultaneous service role keys, so this one has a brief
+window where the old key stops working.
+
+1. Supabase dashboard → the project → Settings → API keys.
+2. Roll the `service_role` key. Copy the new value immediately.
+3. Update `royalty-sync/<env>/config`:
+   ```bash
+   aws secretsmanager put-secret-value \
+     --secret-id royalty-sync/prod/config \
+     --secret-string file://prod-config.json
+   ```
+4. Restart the sync service.
+5. `APP_ENV=prod npm start -- healthcheck` → expect `"ok": true`.
+6. If it reports *"reachable, but the service role key was rejected"*, the new key was not
+   copied correctly. Re-copy from the dashboard; do not roll again.
+
+Schedule: every 90 days, and immediately on any suspected exposure.
+
+### 4b. `GHL_API_TOKEN`
+
+1. GoHighLevel → Settings → Private Integrations.
+2. Create a **new** integration with the same scopes rather than editing the existing one —
+   this gives an overlap window with no downtime.
+3. Update the secret bundle, restart, verify.
+4. Delete the old integration once traffic is confirmed on the new token.
+
+Schedule: every 90 days, and immediately if a token appeared in a log, a ticket or a screen
+share.
+
+### 4c. `WL_CLIENT_ID` / `WL_CLIENT_SECRET`
+
+WellnessLiving issues these; they cannot be self-rotated.
+
+1. Email the WL Integrations team requesting new OAuth2 credentials for the affected
+   environment, stating the reason (routine rotation or suspected exposure).
+2. On receipt: update the secret bundle, restart, verify with `healthcheck`.
+3. Ask WL to revoke the previous pair once the new pair is confirmed working.
+
+Schedule: annually, or immediately on suspected exposure. Because rotation depends on a
+third party, treat exposure as an incident — see §5.
+
+### 4d. Environment coordinates (`WL_API_HOST`, `WL_ID_REGION`, `WL_K_BUSINESS`, `SUPABASE_URL`, `GHL_LOCATION_ID`)
+
+Not rotatable, but they do change — a new WL region, a rebuilt Supabase project, a moved GHL
+location. Update the bundle and restart. No code change is required or permitted; the
+environment-switch test in `tests/config.test.ts` exists to keep it that way.
+
+---
+
+## 5. If a credential leaks
+
+1. **Rotate first, investigate second.** Follow the procedure above for that key.
+2. **Determine the blast radius.** A leaked `service_role` key means full read/write on the
+   Supabase project with RLS bypassed — assume the data was readable.
+3. **If it was committed to git**, rotating is mandatory and not optional: the value stays
+   in the history of every clone and fork. After rotating, purge it with
+   `git filter-repo --replace-text` (or BFG) and force-push, then tell every clone holder to
+   re-clone. CI runs gitleaks over full history on every push, so a leak should be caught
+   before it spreads.
+4. **Record it** in the operations log with the date, the key, how it leaked and what changed
+   to stop a recurrence.
+
+---
+
+## 6. Pre-commit check (recommended)
+
+CI scans on push, but catching a secret before it enters history is much cheaper:
+
+```bash
+# install gitleaks once: https://github.com/gitleaks/gitleaks/releases
+gitleaks protect --staged --config .gitleaks.toml --redact
+```
+
+Wire it into `.git/hooks/pre-commit` if you want it automatic. The hook is local and
+intentionally not committed — CI is the enforcement point.

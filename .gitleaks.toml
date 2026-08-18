@@ -1,0 +1,34 @@
+# gitleaks config for royalty-sync-service.
+# Run locally:  gitleaks detect --config .gitleaks.toml --redact
+# CI runs this on every push AND over full history (see .github/workflows/ci.yml).
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "supabase-legacy-jwt-key"
+description = "Supabase legacy service_role / anon JWT"
+regex = '''eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'''
+tags = ["supabase", "jwt"]
+
+[[rules]]
+id = "supabase-secret-key"
+description = "Supabase secret API key (new format, replaces service_role)"
+regex = '''sb_secret_[A-Za-z0-9_-]{16,}'''
+tags = ["supabase"]
+
+[[rules]]
+id = "ghl-private-integration-token"
+description = "GoHighLevel private integration token"
+regex = '''pit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'''
+tags = ["gohighlevel"]
+
+[allowlist]
+description = "Placeholders and documentation are not secrets"
+paths = [
+  '''\.env\.example$''',
+  '''\.gitleaks\.toml$''',
+]
+regexes = [
+  '''<[a-z0-9-]+>''',
+]

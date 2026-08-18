@@ -1,0 +1,39 @@
+# ---- secrets: nothing in this block may ever be committed ----
+.env
+.env.*
+!.env.example
+*.env
+secrets.json
+secrets.*.json
+*.pem
+*.key
+*.p12
+*.pfx
+credentials
+credentials.*
+.aws/
+.doppler/
+service-account*.json
+
+# ---- node ----
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+.eslintcache
+
+# ---- local caches from probe scripts ----
+04_Development/ghl-match/ghl_contacts.json
+04_Development/ghl-match/*.json
+__pycache__/
+*.pyc
+.venv/
+
+# ---- os / editor ----
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
