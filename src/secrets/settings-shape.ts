@@ -9,6 +9,7 @@ import { SECRET_KEYS, SecretsProviderError, type SecretBundle, type SecretKey } 
  */
 export const SETTINGS_PATHS = {
   'wellnessliving.host': 'WL_API_HOST',
+  'wellnessliving.authHost': 'WL_AUTH_HOST',
   'wellnessliving.idRegion': 'WL_ID_REGION',
   'wellnessliving.kBusiness': 'WL_K_BUSINESS',
   'wellnessliving.clientId': 'WL_CLIENT_ID',

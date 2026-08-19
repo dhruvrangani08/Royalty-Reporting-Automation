@@ -50,6 +50,7 @@ export function describeConfig(config: AppConfig): Record<string, string> {
     env: config.env,
     secretsProvider: config.secretsProviderName,
     wlHost: config.wl.host.length > 0 ? 'set' : 'missing',
+    wlAuthHost: config.wl.authHost.length > 0 ? 'set' : 'missing',
     wlIdRegion: 'set',
     wlKBusiness: 'set',
     wlClientId: fingerprint(config.wl.clientId),

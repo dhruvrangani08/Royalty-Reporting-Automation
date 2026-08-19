@@ -9,12 +9,13 @@ Reference: `2026-08-06_HRRAFEBAV_Sync-Architecture_v1.md` §2a · PRD module M01
 
 ## 1. The secret inventory
 
-Nine keys per environment. `dev` and `prod` values are **all** different — assume nothing
+Ten keys per environment. `dev` and `prod` values are **all** different — assume nothing
 carries over.
 
 | Key                         | Kind                   | Rotatable | Owner / source                                 |
 | --------------------------- | ---------------------- | --------- | ---------------------------------------------- |
-| `WL_API_HOST`               | environment coordinate | no        | WellnessLiving (UAT host vs production host)   |
+| `WL_API_HOST`               | environment coordinate | no        | WellnessLiving (data host)                     |
+| `WL_AUTH_HOST`              | environment coordinate | no        | WellnessLiving (token host — NOT the data host) |
 | `WL_ID_REGION`              | environment coordinate | no        | WellnessLiving (docs use 2, production uses 1) |
 | `WL_K_BUSINESS`             | environment coordinate | no        | WellnessLiving business record                 |
 | `WL_CLIENT_ID`              | credential             | yes       | WL Integrations team                           |
@@ -24,8 +25,30 @@ carries over.
 | `GHL_API_TOKEN`             | credential             | yes       | GoHighLevel private integration                |
 | `GHL_LOCATION_ID`           | environment coordinate | no        | GoHighLevel location                           |
 
+### Route tokens (separate from the ten above)
+
+The deployed HTTP routes are guarded by their own bearer tokens, read straight from the
+process environment rather than the secrets bundle - they protect *our* endpoints and are not
+credentials for anyone else's API.
+
+| Variable             | Guards                 | Notes                                                        |
+| -------------------- | ---------------------- | ------------------------------------------------------------ |
+| `HEALTHCHECK_TOKEN`  | `GET /api/health`      | Unset locks the endpoint. It never opens it.                 |
+| `SYNC_TRIGGER_TOKEN` | `/api/wellness-sync`   | Manual trigger. Unset locks the endpoint.                    |
+| `CRON_SECRET`        | `/api/wellness-sync`   | Vercel Cron sends this as the bearer automatically. Either this or `SYNC_TRIGGER_TOKEN` is accepted. |
+
+Rotate by generating a new random string, setting it in Vercel's environment variables, and
+redeploying. There is no third party to coordinate with, so rotation is immediate and safe to
+do at any time.
+
 The four marked **credential** are also the four in `CREDENTIAL_KEYS` — they are redacted
 from every log line and are the ones the rotation procedures below apply to.
+
+> `WL_AUTH_HOST` and `WL_API_HOST` are **different hosts**. WellnessLiving serves
+> `/oauth2/token` from the auth host only — sending the token request to the data host
+> returns an HTTP 403 challenge page, not a token (verified 18 Aug 2026). Both values come
+> from the WL Integrations team; the Postman collection they ship carries them as `auth_url`
+> and `proxy_url` respectively.
 
 > `SUPABASE_SERVICE_ROLE_KEY` bypasses row-level security. Sync workers only. It must never
 > reach the portal, a browser bundle, or any client-side code.
@@ -51,6 +74,7 @@ the stored secret are byte-identical documents:
   "environment": "prod",
   "wellnessliving": {
     "host": "...",
+    "authHost": "...",
     "idRegion": 1,
     "kBusiness": "...",
     "clientId": "...",
@@ -178,7 +202,7 @@ WellnessLiving issues these; they cannot be self-rotated.
 Schedule: annually, or immediately on suspected exposure. Because rotation depends on a
 third party, treat exposure as an incident — see §5.
 
-### 4d. Environment coordinates (`WL_API_HOST`, `WL_ID_REGION`, `WL_K_BUSINESS`, `SUPABASE_URL`, `GHL_LOCATION_ID`)
+### 4d. Environment coordinates (`WL_API_HOST`, `WL_AUTH_HOST`, `WL_ID_REGION`, `WL_K_BUSINESS`, `SUPABASE_URL`, `GHL_LOCATION_ID`)
 
 Not rotatable, but they do change — a new WL region, a rebuilt Supabase project, a moved GHL
 location. Update the bundle and restart. No code change is required or permitted; the

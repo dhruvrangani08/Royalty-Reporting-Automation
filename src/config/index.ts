@@ -79,6 +79,8 @@ export async function loadConfig(input: LoadConfigInput = {}): Promise<AppConfig
     wl: Object.freeze({
       host: s.WL_API_HOST,
       baseUrl: `https://${s.WL_API_HOST}`,
+      authHost: s.WL_AUTH_HOST,
+      authBaseUrl: `https://${s.WL_AUTH_HOST}`,
       idRegion: s.WL_ID_REGION,
       kBusiness: s.WL_K_BUSINESS,
       clientId: s.WL_CLIENT_ID,

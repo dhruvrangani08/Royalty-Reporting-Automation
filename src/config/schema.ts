@@ -20,17 +20,24 @@ const PLACEHOLDER_MESSAGE =
  * and the issue is fatal so an unfilled key reports once instead of also
  * failing every format rule downstream of it.
  */
-const filledIn = z.string().superRefine((value, ctx) => {
-  if (value.length === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must not be empty', fatal: true });
-    return z.NEVER;
-  }
-  if (PLACEHOLDER_PATTERN.test(value)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: PLACEHOLDER_MESSAGE, fatal: true });
-    return z.NEVER;
-  }
-  return undefined;
-});
+const filledIn = z
+  .string()
+  // Trimmed before any other rule: a value that arrives with stray whitespace -
+  // a copy-paste artefact, or a CRLF line ending in a hand-edited settings file
+  // - must be judged on its content. Every provider trims as well; this is the
+  // backstop for a future one that forgets.
+  .transform((value) => value.trim())
+  .superRefine((value, ctx) => {
+    if (value.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must not be empty', fatal: true });
+      return z.NEVER;
+    }
+    if (PLACEHOLDER_PATTERN.test(value)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: PLACEHOLDER_MESSAGE, fatal: true });
+      return z.NEVER;
+    }
+    return undefined;
+  });
 
 /**
  * A bare hostname: no scheme, no path, no trailing slash, no query.
@@ -82,6 +89,7 @@ const opaqueSecret = filledIn.refine((v) => v.length >= 8, {
 /** Shape of the resolved secret bundle, after validation and coercion. */
 export const secretBundleSchema = z.object({
   WL_API_HOST: bareHost,
+  WL_AUTH_HOST: bareHost,
   WL_ID_REGION: positiveIntFromString,
   WL_K_BUSINESS: wlKey,
   WL_CLIENT_ID: opaqueSecret,
@@ -108,10 +116,14 @@ export const runtimeOptionsSchema = z.object({
 export const appEnvSchema = z.enum(APP_ENVS);
 
 export interface WlConfig {
-  /** Bare host, e.g. the value of WL_API_HOST for this environment. */
+  /** Bare DATA host, e.g. the value of WL_API_HOST for this environment. */
   readonly host: string;
-  /** `https://<host>` with no trailing slash. */
+  /** `https://<host>` with no trailing slash. Data endpoints only. */
   readonly baseUrl: string;
+  /** Bare AUTH host. WL serves /oauth2/token from a different host than data. */
+  readonly authHost: string;
+  /** `https://<authHost>` with no trailing slash. Token endpoint only. */
+  readonly authBaseUrl: string;
   readonly idRegion: number;
   readonly kBusiness: string;
   readonly clientId: string;

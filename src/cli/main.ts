@@ -4,12 +4,14 @@ import { ConfigValidationError } from '../config/schema.js';
 import { createLogger } from '../logging/logger.js';
 import { credentialValues, describeConfig, redact } from '../logging/redact.js';
 import { MissingSecretsError, SecretsProviderError } from '../secrets/types.js';
-import { checkAll } from '../supabase/health.js';
+import { checkAll } from '../health/index.js';
+import { runWellnessSync } from '../wl/sync.js';
 
 const USAGE = `royalty-sync <command>
 
 Commands:
   healthcheck     Resolve config, then probe every dependency. Exit 1 on failure.
+  sync:wellness   Authenticate against WellnessLiving, then run one read-only pass.
   config:check    Resolve and validate config only. Makes no network calls.
   config:show     Print the resolved config with credentials fingerprinted.
   help            Show this message.
@@ -28,7 +30,7 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
-  if (!['healthcheck', 'config:check', 'config:show'].includes(command)) {
+  if (!['healthcheck', 'config:check', 'config:show', 'sync:wellness'].includes(command)) {
     console.error(`Unknown command: ${command}\n\n${USAGE}`);
     return 2;
   }
@@ -52,6 +54,17 @@ async function main(argv: readonly string[]): Promise<number> {
     case 'config:show': {
       console.log(JSON.stringify(describeConfig(config), null, 2));
       return 0;
+    }
+
+    case 'sync:wellness': {
+      const summary = await runWellnessSync(config);
+      for (const step of summary.steps) {
+        const fields = { step: step.name, kLog: step.kLog, latencyMs: step.latencyMs };
+        if (step.ok) logger.info('sync step ok', fields);
+        else logger.error('sync step FAILED', { ...fields, detail: step.detail });
+      }
+      console.log(JSON.stringify(summary, null, 2));
+      return summary.ok ? 0 : 1;
     }
 
     case 'healthcheck': {

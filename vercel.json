@@ -7,8 +7,17 @@
   "functions": {
     "api/health.ts": {
       "maxDuration": 60
+    },
+    "api/wellness-sync.ts": {
+      "maxDuration": 60
     }
   },
+  "crons": [
+    {
+      "path": "/api/wellness-sync",
+      "schedule": "0 3 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
