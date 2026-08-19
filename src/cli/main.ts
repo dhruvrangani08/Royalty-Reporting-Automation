@@ -62,8 +62,29 @@ async function main(argv: readonly string[]): Promise<number> {
 
     case 'sync:wellness': {
       const summary = await runWellnessSync(config);
+      // One line naming the run, so a support request can quote the prefix that
+      // every trace id below shares.
+      logger.info('sync pass', { runId: summary.runId, env: summary.env });
+      if (summary.authError !== undefined) {
+        logger.error('sync authentication FAILED', {
+          endpoint: '/oauth2/token',
+          outcome: 'failed',
+          runId: summary.runId,
+          detail: summary.authError,
+        });
+      }
       for (const step of summary.steps) {
-        const fields = { step: step.name, kLog: step.kLog, latencyMs: step.latencyMs };
+        // endpoint + duration + outcome + trace id: everything needed to trace a
+        // call without reproducing it. kLog is WL's own, present only on the
+        // endpoints that send one; traceId is ours and always there.
+        const fields = {
+          step: step.name,
+          endpoint: step.path,
+          latencyMs: step.latencyMs,
+          outcome: step.ok ? 'ok' : 'failed',
+          traceId: step.traceId,
+          kLog: step.kLog,
+        };
         if (step.ok) logger.info('sync step ok', fields);
         else logger.error('sync step FAILED', { ...fields, detail: step.detail });
       }

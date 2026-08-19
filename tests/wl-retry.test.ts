@@ -2,16 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../src/config/index.js';
 import type { AppConfig, WlConfig } from '../src/config/schema.js';
 import { WlClient, type WlRequestError } from '../src/wl/client.js';
-import { WlRateLimiter } from '../src/wl/rate-limit.js';
 import { RETRY_SCHEDULE_MS, retryDelayMs, throttleBackoffMs } from '../src/wl/retry.js';
 import { runWellnessSync } from '../src/wl/sync.js';
 import { FakeProvider } from './helpers/fixtures.js';
 
 /**
- * WL publishes no rate limits, so the client starts conservative and backs off
- * rather than failing. What is asserted here:
+ * Retry behaviour. There is deliberately NO client-side rate limit: WL publishes
+ * no limit, so this service does not invent one - it reacts to what WL actually
+ * says instead. What is asserted here:
  *
- *   - the cap is SHARED, so N workers do not multiply the real rate by N
  *   - a throttle backs off on a widening, jittered ladder and the item is
  *     handed back for requeue rather than dropped
  *   - a permanent error costs exactly one call, because a bad parameter will be
@@ -99,101 +98,6 @@ function routed(...dataResponses: Array<() => Response>) {
   });
   return { fetchMock, counts };
 }
-
-describe('the rate limiter is shared and configurable', () => {
-  it('spaces requests to the configured rate', async () => {
-    const time = fakeTime();
-    const limiter = new WlRateLimiter({ requestsPerSecond: 5, now: time.now, sleep: time.sleep });
-
-    for (let i = 0; i < 4; i += 1) await limiter.run(() => Promise.resolve(i));
-
-    // 5/s means one every 200ms. The first is free; three wait.
-    expect(time.slept).toEqual([200, 200, 200]);
-    expect(limiter.stats().admitted).toBe(4);
-  });
-
-  it('honours a different configured rate', async () => {
-    const time = fakeTime();
-    const limiter = new WlRateLimiter({ requestsPerSecond: 2, now: time.now, sleep: time.sleep });
-
-    for (let i = 0; i < 3; i += 1) await limiter.run(() => Promise.resolve(i));
-
-    expect(time.slept).toEqual([500, 500]);
-  });
-
-  it('does not wait at all when no limit is configured', async () => {
-    const time = fakeTime();
-    const limiter = new WlRateLimiter({ now: time.now, sleep: time.sleep });
-
-    for (let i = 0; i < 10; i += 1) await limiter.run(() => Promise.resolve(i));
-
-    expect(time.slept).toEqual([]);
-  });
-
-  it('caps the rate ACROSS workers, not per worker', async () => {
-    const wl = await wlConfig();
-    const time = fakeTime();
-    // One limiter, two clients - the shape runWellnessSync uses.
-    const limiter = new WlRateLimiter({ requestsPerSecond: 5, now: time.now, sleep: time.sleep });
-    const workerA = new WlClient(wl, { fetch: routed(ok).fetchMock, limiter, now: time.now });
-    const workerB = new WlClient(wl, { fetch: routed(ok).fetchMock, limiter, now: time.now });
-
-    await workerA.request('/v1/business');
-    await workerB.request('/v1/business');
-    await workerA.request('/v1/business');
-
-    // Three calls through ONE cap. Per-worker limiters would have let workerB's
-    // call go immediately, costing a 200ms wait rather than two.
-    expect(limiter.stats().admitted).toBe(3);
-    expect(time.slept).toEqual([200, 200]);
-  });
-
-  it('caps how many requests are in flight at once', async () => {
-    const limiter = new WlRateLimiter({ maxConcurrency: 2 });
-    const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
-    let inFlight = 0;
-    let peak = 0;
-    /** Each running task parks on a gate, so the test decides when it finishes. */
-    const gates: Array<() => void> = [];
-
-    const runs = Array.from({ length: 5 }, () =>
-      limiter.run(async () => {
-        inFlight += 1;
-        peak = Math.max(peak, inFlight);
-        await new Promise<void>((resolve) => gates.push(resolve));
-        inFlight -= 1;
-      }),
-    );
-
-    // Five started, but only two may be running: the rest are queued.
-    await flush();
-    expect(inFlight).toBe(2);
-
-    // Releasing one admits exactly one more, never two.
-    for (let i = 0; i < 5; i += 1) {
-      gates.shift()?.();
-      await flush();
-    }
-    await Promise.all(runs);
-
-    expect(peak).toBe(2);
-    expect(limiter.stats().admitted).toBe(5);
-  });
-
-  it('applies the configured limits on the real sync path', async () => {
-    const config = await loadFake();
-    const time = fakeTime();
-    const { fetchMock } = routed(ok);
-
-    await runWellnessSync(config, { fetch: fetchMock, now: time.now, sleep: time.sleep });
-
-    // FakeProvider resolves the schema default of 5/s, and sync must pass it
-    // through: without that wiring WL_REQUESTS_PER_SECOND would be dead config.
-    expect(config.runtime.requestsPerSecond).toBe(5);
-    expect(time.slept.every((ms) => ms === 200)).toBe(true);
-    expect(time.slept.length).toBeGreaterThan(0);
-  });
-});
 
 describe('a throttle backs off, widens and requeues', () => {
   it('backs off on a widening ladder rather than a fixed delay', async () => {

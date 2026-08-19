@@ -29,7 +29,7 @@ function happyFetch(payload: Record<string, unknown> = { a_row: [1, 2] }) {
   });
 }
 
-/** The rate limiter is exercised in tests/wl-rate-limit.test.ts; here it must not wait. */
+/** Throttle backoff is exercised in tests/wl-retry.test.ts; here it must not wait. */
 const noSleep = (): Promise<void> => Promise.resolve();
 
 const clock = () => {

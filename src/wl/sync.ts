@@ -1,5 +1,6 @@
 import type { AppConfig } from '../config/schema.js';
 import type { AppEnv } from '../secrets/types.js';
+import { runBatch } from './batch.js';
 import { WlClient, WlRequestError, type WlClientDeps } from './client.js';
 import { WL_PATHS } from './endpoint.js';
 import { WlAuthError } from './token.js';
@@ -42,6 +43,8 @@ export interface WellnessSyncStep {
   readonly ok: boolean;
   /** Safe to log: never contains business data, a host or a credential. */
   readonly detail: string;
+  /** OUR trace id for this call. Always present, so a log line is traceable. */
+  readonly traceId: string;
   /** WL's trace id. Null when WL did not send one - it does not on every endpoint. */
   readonly kLog: string | null;
   readonly latencyMs: number;
@@ -69,6 +72,8 @@ export interface WellnessSyncSummary {
   readonly steps: readonly WellnessSyncStep[];
   /** Steps not attempted because the time budget ran out. Never silent. */
   readonly skipped: readonly string[];
+  /** The run prefix every trace id in this pass shares. Grep this to see it all. */
+  readonly runId: string;
   /** Present only when authentication itself failed, so no step ran. */
   readonly authError?: string;
 }
@@ -78,6 +83,8 @@ export interface WellnessSyncDeps extends WlClientDeps {
   budgetMs?: number;
   /** Inject a pre-built client, e.g. to share one token cache across passes. */
   client?: WlClient;
+  /** How many steps to run in flight. Defaults to WL_MAX_CONCURRENCY. */
+  concurrency?: number;
 }
 
 export async function runWellnessSync(
@@ -94,11 +101,6 @@ export async function runWellnessSync(
       ...deps,
       env: config.env,
       timeoutMs: deps.timeoutMs ?? config.runtime.httpTimeoutMs,
-      // The limits are configuration, not constants. Passing them here is what
-      // makes WL_REQUESTS_PER_SECOND and WL_MAX_CONCURRENCY real: the client
-      // defaults to unlimited, so a run that skipped this would be uncapped.
-      requestsPerSecond: deps.requestsPerSecond ?? config.runtime.requestsPerSecond,
-      maxConcurrency: deps.maxConcurrency ?? config.runtime.maxConcurrency,
       now,
     });
 
@@ -114,6 +116,7 @@ export async function runWellnessSync(
       durationMs: now() - startedAt,
       steps: [],
       skipped: STEPS.map((s) => s.name),
+      runId: client.runId,
       authError:
         error instanceof WlAuthError
           ? error.message
@@ -121,16 +124,25 @@ export async function runWellnessSync(
     };
   }
 
-  const steps: WellnessSyncStep[] = [];
-  const skipped: string[] = [];
+  // Batched rather than a sequential loop: the steps are independent, so one
+  // slow endpoint should not hold up the others. runBatch also owns the budget
+  // check, and reports what it never started instead of truncating silently.
+  const batch = await runBatch(STEPS, (step) => runStep(client, step), {
+    // Bounds how many items are in flight, NOT a request rate: WL publishes no
+    // rate limit and this service no longer invents one.
+    concurrency: deps.concurrency ?? config.runtime.maxConcurrency,
+    budgetMs,
+    now,
+    startedAt,
+  });
 
-  for (const step of STEPS) {
-    if (now() - startedAt >= budgetMs) {
-      skipped.push(step.name);
-      continue;
-    }
-    steps.push(await runStep(client, step));
-  }
+  // runStep never throws - it turns a WlRequestError into a failed step - so a
+  // failure here is a bug rather than an API problem. Recorded, not swallowed.
+  const steps: WellnessSyncStep[] = [
+    ...batch.results,
+    ...batch.failures.map((f) => unexpectedStepFailure(f.item)),
+  ];
+  const skipped = batch.remaining.map((step) => step.name);
 
   return {
     env: config.env,
@@ -139,6 +151,20 @@ export async function runWellnessSync(
     durationMs: now() - startedAt,
     steps,
     skipped,
+    runId: client.runId,
+  };
+}
+
+/** A step that threw where it should have returned. Should never happen. */
+function unexpectedStepFailure(step: { name: string; path: string }): WellnessSyncStep {
+  return {
+    name: step.name,
+    path: step.path,
+    ok: false,
+    detail: 'failed for an unknown reason',
+    traceId: 'unknown',
+    kLog: null,
+    latencyMs: 0,
   };
 }
 
@@ -153,6 +179,7 @@ async function runStep(
       path: step.path,
       ok: true,
       detail: 'ok',
+      traceId: response.traceId,
       kLog: response.kLog,
       latencyMs: response.latencyMs,
       collections: countCollections(response.body),
@@ -165,8 +192,11 @@ async function runStep(
         path: step.path,
         ok: false,
         detail: error.message,
+        traceId: error.details.traceId,
         kLog: error.details.kLog,
-        latencyMs: 0,
+        // The real duration, not 0: a 30s timeout and a 40ms rejection are
+        // different problems and the log has to tell them apart.
+        latencyMs: error.details.latencyMs,
         sid: error.details.sid,
         kind: error.kind,
         httpStatus: error.details.httpStatus,
@@ -177,6 +207,7 @@ async function runStep(
       path: step.path,
       ok: false,
       detail: 'failed for an unknown reason',
+      traceId: 'unknown',
       kLog: null,
       latencyMs: 0,
     };

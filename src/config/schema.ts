@@ -121,7 +121,6 @@ export type ValidatedSecrets = z.output<typeof secretBundleSchema>;
 export const runtimeOptionsSchema = z.object({
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
   WL_MAX_CONCURRENCY: positiveIntFromString.default('5'),
-  WL_REQUESTS_PER_SECOND: positiveIntFromString.default('5'),
   HTTP_TIMEOUT_MS: positiveIntFromString.default('30000'),
   // Off by default: on Vercel the filesystem is read-only apart from /tmp, and
   // /tmp does not survive the invocation. Deployed environments read the
@@ -160,7 +159,6 @@ export interface GhlConfig {
 export interface RuntimeConfig {
   readonly logLevel: LogLevel;
   readonly maxConcurrency: number;
-  readonly requestsPerSecond: number;
   readonly httpTimeoutMs: number;
   /** Whether to also append every line to files under `logDir`. */
   readonly logToFile: boolean;

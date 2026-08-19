@@ -1,8 +1,8 @@
 import type { WlConfig } from '../config/schema.js';
 import type { AppEnv } from '../secrets/types.js';
 import { buildWlUrl, type QueryValue } from './endpoint.js';
-import { WlRateLimiter } from './rate-limit.js';
 import { parseRetryAfter, retryDelayMs, throttleBackoffMs } from './retry.js';
+import { createTraceIds, readKLog, type TraceIdSource } from './trace.js';
 import { WlAuthError, WlTokenClient, type WlTokenClientDeps } from './token.js';
 
 /**
@@ -38,9 +38,28 @@ export interface WlErrorDetails {
   readonly sid: string | null;
   /** Which field WL rejected, from `a_error[].s_field`. */
   readonly sField: string | null;
-  /** WL's trace id, for raising a support ticket. */
+  /**
+   * OUR trace id for this call. Always present.
+   *
+   * This is what ties a log line to a request. WL's own id is absent on most of
+   * the endpoints this service uses, so an internal id is the only thing that
+   * can be relied on - see src/wl/trace.ts.
+   */
+  readonly traceId: string;
+  /**
+   * WL's trace id, when they sent one. Null otherwise, and null is honest: a
+   * fabricated id would send support looking for a log entry that never existed.
+   */
   readonly kLog: string | null;
   readonly httpStatus: number | null;
+  /**
+   * How long the failing call took, in ms.
+   *
+   * Recorded on failures as well as successes: a timeout that took thirty
+   * seconds and a rejection that took forty milliseconds are different problems,
+   * and reporting either as 0 hides which one happened.
+   */
+  readonly latencyMs: number;
   /** WL's own `Retry-After`, in ms, when it sent one and it was sane. */
   readonly retryAfterMs: number | null;
   /** How many in-process attempts were made before giving up. Always >= 1. */
@@ -72,6 +91,9 @@ export class WlRequestError extends Error {
 /** A successful WL response, plus the trace id that must be recorded with it. */
 export interface WlResponse<T> {
   readonly body: T;
+  /** OUR trace id for this call. Always present. */
+  readonly traceId: string;
+  /** WL's trace id, when they sent one. */
   readonly kLog: string | null;
   readonly httpStatus: number;
   readonly latencyMs: number;
@@ -94,22 +116,19 @@ export interface WlClientDeps extends WlTokenClientDeps {
    * worker count, which is the thing the cache exists to prevent.
    */
   tokens?: WlTokenClient;
-  /**
-   * The rate limiter to share.
-   *
-   * Same reasoning as the token cache, and more urgent: a limiter owned by one
-   * worker caps that worker only, so N workers multiply the real rate by N.
-   * `runWellnessSync` builds one from config and passes it to every client.
-   */
-  limiter?: WlRateLimiter;
-  /** Used only when no `limiter` is supplied. Omitted means unlimited. */
-  requestsPerSecond?: number;
-  /** Used only when no `limiter` is supplied. Omitted means unlimited. */
-  maxConcurrency?: number;
   /** Injectable delay so tests do not wait out a backoff. */
   sleep?: (ms: number) => Promise<void>;
   /** Injectable randomness so a test can pin the jitter. */
   random?: () => number;
+  /**
+   * Shared trace id source.
+   *
+   * Pass ONE per sync pass so every call carries the same run prefix and a
+   * single grep pulls back the whole pass in order.
+   */
+  traces?: TraceIdSource;
+  /** Fixed run id, e.g. to match a caller's own. Generated if omitted. */
+  runId?: string;
 }
 
 export class WlClient {
@@ -118,9 +137,9 @@ export class WlClient {
   private readonly now: () => number;
   private readonly timeoutMs: number;
   private readonly env: AppEnv | null;
-  private readonly limiter: WlRateLimiter;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly random: () => number;
+  private readonly traces: TraceIdSource;
 
   constructor(
     private readonly wl: WlConfig,
@@ -133,21 +152,13 @@ export class WlClient {
     this.env = deps.env ?? null;
     this.sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.random = deps.random ?? Math.random;
-    this.limiter =
-      deps.limiter ??
-      new WlRateLimiter({
-        ...(deps.requestsPerSecond === undefined
-          ? {}
-          : { requestsPerSecond: deps.requestsPerSecond }),
-        ...(deps.maxConcurrency === undefined ? {} : { maxConcurrency: deps.maxConcurrency }),
-        now: this.now,
-        sleep: this.sleep,
-      });
+    this.traces =
+      deps.traces ?? createTraceIds(deps.runId === undefined ? {} : { runId: deps.runId });
   }
 
-  /** Limiter counters, for health output and logs. */
-  rateLimitStatus(): ReturnType<WlRateLimiter['stats']> {
-    return this.limiter.stats();
+  /** The run prefix every trace id from this client shares. */
+  get runId(): string {
+    return this.traces.runId;
   }
 
   /**
@@ -177,14 +188,14 @@ export class WlClient {
     let authRetried = false;
     let throttleAttempt = 0;
     let attempts = 0;
+    // ONE id for the logical call, not one per attempt: retries are the same
+    // operation, and `attempts` already records how many there were.
+    const traceId = this.traces.next();
 
-    // Every attempt goes through the shared limiter, retries included: a retry
-    // is another request against the same cap, and exempting it would let a
-    // throttled run push harder than a healthy one.
     for (;;) {
       attempts += 1;
       try {
-        return await this.limiter.run(() => this.attempt<T>(path, options));
+        return await this.attempt<T>(path, options, traceId);
       } catch (error) {
         if (!(error instanceof WlRequestError)) throw error;
 
@@ -238,7 +249,11 @@ export class WlClient {
     );
   }
 
-  private async attempt<T>(path: string, options: WlRequestOptions): Promise<WlResponse<T>> {
+  private async attempt<T>(
+    path: string,
+    options: WlRequestOptions,
+    traceId: string,
+  ): Promise<WlResponse<T>> {
     // Token first, every time. The common path is a cache read; a refresh
     // happens here rather than mid-flight.
     const accessToken = await this.tokens.getAccessToken();
@@ -265,6 +280,7 @@ export class WlClient {
         `${method} ${path} did not complete${describeEnv(this.env)}: ${describeFetchFailure(cause, this.timeoutMs)}`,
         {
           path,
+          traceId,
           sid: null,
           sField: null,
           kLog: null,
@@ -272,6 +288,9 @@ export class WlClient {
           retryAfterMs: null,
           attempts: 1,
           requeueAfterMs: null,
+          // A timeout is the slowest failure there is; recording it as 0 would
+          // throw away the one number that identifies it.
+          latencyMs: this.now() - startedAt,
         },
         { cause },
       );
@@ -290,6 +309,7 @@ export class WlClient {
         `${method} ${path} failed with HTTP ${String(response.status)}${describeEnv(this.env)}`,
         {
           path,
+          traceId,
           sid: readStatus(body),
           sField: null,
           kLog,
@@ -297,6 +317,7 @@ export class WlClient {
           retryAfterMs,
           attempts: 1,
           requeueAfterMs: null,
+          latencyMs,
         },
         undefined,
       );
@@ -313,6 +334,7 @@ export class WlClient {
           (first.message === null ? '' : `: ${first.message}`),
         {
           path,
+          traceId,
           sid,
           sField: first.sField,
           kLog,
@@ -320,12 +342,13 @@ export class WlClient {
           retryAfterMs,
           attempts: 1,
           requeueAfterMs: null,
+          latencyMs,
         },
         undefined,
       );
     }
 
-    return { body: body as T, kLog, httpStatus: response.status, latencyMs };
+    return { body: body as T, traceId, kLog, httpStatus: response.status, latencyMs };
   }
 }
 
@@ -373,22 +396,6 @@ function classifySid(sid: string | null): WlFailureKind {
 
 function readStatus(body: unknown): string | null {
   return readString(body, 'status');
-}
-
-/**
- * WL's trace id.
- *
- * Top level on a normal response; on an error it hides inside the first error's
- * `a_message_source` under the literal key "[k_log]" (architecture doc 2b).
- */
-function readKLog(body: unknown): string | null {
-  const direct = readString(body, 'k_log');
-  if (direct !== null) return direct;
-
-  const errors = readArray(body, 'a_error');
-  const source = errors.length === 0 ? null : asRecord(errors[0])?.a_message_source;
-  const nested = asRecord(source)?.['[k_log]'];
-  return typeof nested === 'string' && nested.length > 0 ? nested : null;
 }
 
 function readFirstError(body: unknown): {
