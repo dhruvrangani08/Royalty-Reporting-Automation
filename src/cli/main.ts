@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { loadConfig } from '../config/index.js';
 import { ConfigValidationError } from '../config/schema.js';
+import { createDefaultFileSinks } from '../logging/file-sink.js';
 import { createLogger } from '../logging/logger.js';
 import { credentialValues, describeConfig, redact } from '../logging/redact.js';
 import { MissingSecretsError, SecretsProviderError } from '../secrets/types.js';
@@ -36,9 +37,12 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   const config = await loadConfig();
+  // Files are opt-in (LOG_TO_FILE). Lines are redacted before any sink sees
+  // them, so a log file cannot hold a credential the console did not show.
   const logger = createLogger({
     level: config.runtime.logLevel,
     secrets: credentialValues(config),
+    ...(config.runtime.logToFile ? { sinks: createDefaultFileSinks(config.runtime.logDir) } : {}),
   });
 
   switch (command) {

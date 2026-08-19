@@ -82,6 +82,18 @@ const httpsUrl = filledIn
   )
   .transform((v) => v.replace(/\/+$/, ''));
 
+/**
+ * A flag written the way an env file writes one.
+ *
+ * Accepts the four spellings people actually type. Anything else is rejected
+ * rather than silently read as false: a typo that quietly disables logging is
+ * the kind of thing only noticed when the log is needed.
+ */
+const booleanFromString = z
+  .enum(['true', 'false', '1', '0'])
+  .default('false')
+  .transform((v) => v === 'true' || v === '1');
+
 const opaqueSecret = filledIn.refine((v) => v.length >= 8, {
   message: 'is too short to be a real credential',
 });
@@ -111,6 +123,11 @@ export const runtimeOptionsSchema = z.object({
   WL_MAX_CONCURRENCY: positiveIntFromString.default('5'),
   WL_REQUESTS_PER_SECOND: positiveIntFromString.default('5'),
   HTTP_TIMEOUT_MS: positiveIntFromString.default('30000'),
+  // Off by default: on Vercel the filesystem is read-only apart from /tmp, and
+  // /tmp does not survive the invocation. Deployed environments read the
+  // platform log stream; file logs are for local runs and long-lived hosts.
+  LOG_TO_FILE: booleanFromString,
+  LOG_DIR: z.string().trim().min(1).default('logs'),
 });
 
 export const appEnvSchema = z.enum(APP_ENVS);
@@ -145,6 +162,10 @@ export interface RuntimeConfig {
   readonly maxConcurrency: number;
   readonly requestsPerSecond: number;
   readonly httpTimeoutMs: number;
+  /** Whether to also append every line to files under `logDir`. */
+  readonly logToFile: boolean;
+  /** Directory for app.log and error.log. Relative paths resolve from cwd. */
+  readonly logDir: string;
 }
 
 export interface AppConfig {
