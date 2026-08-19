@@ -94,6 +94,11 @@ export async function runWellnessSync(
       ...deps,
       env: config.env,
       timeoutMs: deps.timeoutMs ?? config.runtime.httpTimeoutMs,
+      // The limits are configuration, not constants. Passing them here is what
+      // makes WL_REQUESTS_PER_SECOND and WL_MAX_CONCURRENCY real: the client
+      // defaults to unlimited, so a run that skipped this would be uncapped.
+      requestsPerSecond: deps.requestsPerSecond ?? config.runtime.requestsPerSecond,
+      maxConcurrency: deps.maxConcurrency ?? config.runtime.maxConcurrency,
       now,
     });
 

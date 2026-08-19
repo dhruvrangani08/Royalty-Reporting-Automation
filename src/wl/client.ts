@@ -1,6 +1,8 @@
 import type { WlConfig } from '../config/schema.js';
 import type { AppEnv } from '../secrets/types.js';
 import { buildWlUrl, type QueryValue } from './endpoint.js';
+import { WlRateLimiter } from './rate-limit.js';
+import { parseRetryAfter, retryDelayMs, throttleBackoffMs } from './retry.js';
 import { WlAuthError, WlTokenClient, type WlTokenClientDeps } from './token.js';
 
 /**
@@ -39,6 +41,15 @@ export interface WlErrorDetails {
   /** WL's trace id, for raising a support ticket. */
   readonly kLog: string | null;
   readonly httpStatus: number | null;
+  /** WL's own `Retry-After`, in ms, when it sent one and it was sane. */
+  readonly retryAfterMs: number | null;
+  /** How many in-process attempts were made before giving up. Always >= 1. */
+  readonly attempts: number;
+  /**
+   * How long the queue layer should wait before trying this item again, in ms,
+   * or null when it is permanent or the schedule is exhausted (dead-letter).
+   */
+  readonly requeueAfterMs: number | null;
 }
 
 export class WlRequestError extends Error {
@@ -83,6 +94,22 @@ export interface WlClientDeps extends WlTokenClientDeps {
    * worker count, which is the thing the cache exists to prevent.
    */
   tokens?: WlTokenClient;
+  /**
+   * The rate limiter to share.
+   *
+   * Same reasoning as the token cache, and more urgent: a limiter owned by one
+   * worker caps that worker only, so N workers multiply the real rate by N.
+   * `runWellnessSync` builds one from config and passes it to every client.
+   */
+  limiter?: WlRateLimiter;
+  /** Used only when no `limiter` is supplied. Omitted means unlimited. */
+  requestsPerSecond?: number;
+  /** Used only when no `limiter` is supplied. Omitted means unlimited. */
+  maxConcurrency?: number;
+  /** Injectable delay so tests do not wait out a backoff. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Injectable randomness so a test can pin the jitter. */
+  random?: () => number;
 }
 
 export class WlClient {
@@ -91,6 +118,9 @@ export class WlClient {
   private readonly now: () => number;
   private readonly timeoutMs: number;
   private readonly env: AppEnv | null;
+  private readonly limiter: WlRateLimiter;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly random: () => number;
 
   constructor(
     private readonly wl: WlConfig,
@@ -101,6 +131,23 @@ export class WlClient {
     this.now = deps.now ?? (() => Date.now());
     this.timeoutMs = deps.timeoutMs ?? 30_000;
     this.env = deps.env ?? null;
+    this.sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.random = deps.random ?? Math.random;
+    this.limiter =
+      deps.limiter ??
+      new WlRateLimiter({
+        ...(deps.requestsPerSecond === undefined
+          ? {}
+          : { requestsPerSecond: deps.requestsPerSecond }),
+        ...(deps.maxConcurrency === undefined ? {} : { maxConcurrency: deps.maxConcurrency }),
+        now: this.now,
+        sleep: this.sleep,
+      });
+  }
+
+  /** Limiter counters, for health output and logs. */
+  rateLimitStatus(): ReturnType<WlRateLimiter['stats']> {
+    return this.limiter.stats();
   }
 
   /**
@@ -127,18 +174,68 @@ export class WlClient {
    * @throws WlAuthError when no token could be obtained at all.
    */
   async request<T = unknown>(path: string, options: WlRequestOptions = {}): Promise<WlResponse<T>> {
-    // One retry, and only for an auth failure: the token died early, so a fresh
-    // one is worth exactly one more attempt. Anything else is the caller's
-    // decision, made with kind/isRetryable.
-    try {
-      return await this.attempt<T>(path, options);
-    } catch (error) {
-      if (error instanceof WlRequestError && error.kind === 'auth') {
-        this.tokens.invalidate();
-        return this.attempt<T>(path, options);
+    let authRetried = false;
+    let throttleAttempt = 0;
+    let attempts = 0;
+
+    // Every attempt goes through the shared limiter, retries included: a retry
+    // is another request against the same cap, and exempting it would let a
+    // throttled run push harder than a healthy one.
+    for (;;) {
+      attempts += 1;
+      try {
+        return await this.limiter.run(() => this.attempt<T>(path, options));
+      } catch (error) {
+        if (!(error instanceof WlRequestError)) throw error;
+
+        // The token died early. One fresh token is worth exactly one more
+        // attempt, immediately - this is not a backoff case.
+        if (error.kind === 'auth' && !authRetried) {
+          authRetried = true;
+          this.tokens.invalidate();
+          continue;
+        }
+
+        // PERMANENT: a bad parameter is just as bad in twenty-five minutes.
+        // Fail now, with no retry and nothing for the queue to pick up.
+        if (error.kind !== 'transient') {
+          throw this.withRetryGuidance(error, attempts, null);
+        }
+
+        // TRANSIENT: back off and try again inside this pass, preferring WL's
+        // own Retry-After over our ladder when it sent one.
+        const backoff =
+          error.details.retryAfterMs ?? throttleBackoffMs(throttleAttempt, this.random);
+        if (backoff !== null) {
+          throttleAttempt += 1;
+          await this.sleep(backoff);
+          continue;
+        }
+
+        // In-process ladder exhausted. Hand the item back for requeue on the
+        // 1 / 5 / 25 minute schedule rather than blocking the run any longer.
+        throw this.withRetryGuidance(error, attempts, retryDelayMs(0, this.random));
       }
-      throw error;
     }
+  }
+
+  /**
+   * Restamps a failure with what the caller needs to decide what happens next.
+   *
+   * Rebuilt rather than mutated because `details` is readonly, and a dead-letter
+   * record that was quietly edited after the fact is worse than no record.
+   */
+  private withRetryGuidance(
+    error: WlRequestError,
+    attempts: number,
+    requeueAfterMs: number | null,
+  ): WlRequestError {
+    return new WlRequestError(
+      error.kind,
+      error.message,
+      { ...error.details, attempts, requeueAfterMs },
+      error.cause === undefined ? undefined : { cause: error.cause },
+    );
   }
 
   private async attempt<T>(path: string, options: WlRequestOptions): Promise<WlResponse<T>> {
@@ -166,12 +263,23 @@ export class WlClient {
       throw new WlRequestError(
         'transient',
         `${method} ${path} did not complete${describeEnv(this.env)}: ${describeFetchFailure(cause, this.timeoutMs)}`,
-        { path, sid: null, sField: null, kLog: null, httpStatus: null },
+        {
+          path,
+          sid: null,
+          sField: null,
+          kLog: null,
+          httpStatus: null,
+          retryAfterMs: null,
+          attempts: 1,
+          requeueAfterMs: null,
+        },
         { cause },
       );
     }
 
     const latencyMs = this.now() - startedAt;
+    // WL's own instruction, when it sends one. Outranks any ladder we invented.
+    const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'), this.now());
     const raw = await response.text();
     const body = parseJson(raw);
     const kLog = readKLog(body);
@@ -180,7 +288,16 @@ export class WlClient {
       throw new WlRequestError(
         classifyHttpStatus(response.status),
         `${method} ${path} failed with HTTP ${String(response.status)}${describeEnv(this.env)}`,
-        { path, sid: readStatus(body), sField: null, kLog, httpStatus: response.status },
+        {
+          path,
+          sid: readStatus(body),
+          sField: null,
+          kLog,
+          httpStatus: response.status,
+          retryAfterMs,
+          attempts: 1,
+          requeueAfterMs: null,
+        },
         undefined,
       );
     }
@@ -194,7 +311,16 @@ export class WlClient {
         classifySid(sid),
         `${method} ${path} returned status "${sid ?? 'unknown'}"${describeEnv(this.env)}` +
           (first.message === null ? '' : `: ${first.message}`),
-        { path, sid, sField: first.sField, kLog, httpStatus: response.status },
+        {
+          path,
+          sid,
+          sField: first.sField,
+          kLog,
+          httpStatus: response.status,
+          retryAfterMs,
+          attempts: 1,
+          requeueAfterMs: null,
+        },
         undefined,
       );
     }

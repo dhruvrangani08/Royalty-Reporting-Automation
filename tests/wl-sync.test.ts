@@ -29,6 +29,9 @@ function happyFetch(payload: Record<string, unknown> = { a_row: [1, 2] }) {
   });
 }
 
+/** The rate limiter is exercised in tests/wl-rate-limit.test.ts; here it must not wait. */
+const noSleep = (): Promise<void> => Promise.resolve();
+
 const clock = () => {
   let t = 0;
   return () => (t += 5);
@@ -39,7 +42,7 @@ describe('runWellnessSync', () => {
     const config = await loadFake();
     const fetchMock = happyFetch();
 
-    await runWellnessSync(config, { fetch: fetchMock, now: clock() });
+    await runWellnessSync(config, { fetch: fetchMock, now: clock(), sleep: noSleep });
 
     expect(calledUrl(fetchMock.mock.calls[0]?.[0])).toContain('/oauth2/token');
   });
@@ -48,7 +51,11 @@ describe('runWellnessSync', () => {
     const config = await loadFake();
     const fetchMock = happyFetch();
 
-    const summary = await runWellnessSync(config, { fetch: fetchMock, now: clock() });
+    const summary = await runWellnessSync(config, {
+      fetch: fetchMock,
+      now: clock(),
+      sleep: noSleep,
+    });
 
     expect(summary.ok).toBe(true);
     expect(summary.steps).toHaveLength(3);
@@ -61,6 +68,7 @@ describe('runWellnessSync', () => {
     const summary = await runWellnessSync(config, {
       fetch: happyFetch({ a_location: [1, 2, 3] }),
       now: clock(),
+      sleep: noSleep,
     });
 
     expect(summary.steps[0]?.kLog).toBe('[9.9msb]');
@@ -73,6 +81,7 @@ describe('runWellnessSync', () => {
     const summary = await runWellnessSync(config, {
       fetch: happyFetch({ a_staff: { '66162909': {}, '66086649': {} } }),
       now: clock(),
+      sleep: noSleep,
     });
 
     expect(summary.steps[0]?.collections).toEqual({ a_staff: 2 });
@@ -84,7 +93,11 @@ describe('runWellnessSync', () => {
       .fn<typeof globalThis.fetch>()
       .mockResolvedValue(new Response('{"error":"invalid_client"}', { status: 401 }));
 
-    const summary = await runWellnessSync(config, { fetch: fetchMock, now: clock() });
+    const summary = await runWellnessSync(config, {
+      fetch: fetchMock,
+      now: clock(),
+      sleep: noSleep,
+    });
 
     expect(summary.ok).toBe(false);
     expect(summary.steps).toHaveLength(0);
@@ -112,7 +125,11 @@ describe('runWellnessSync', () => {
       return Promise.resolve(new Response(JSON.stringify({ status: 'ok' }), { status: 200 }));
     });
 
-    const summary = await runWellnessSync(config, { fetch: fetchMock, now: clock() });
+    const summary = await runWellnessSync(config, {
+      fetch: fetchMock,
+      now: clock(),
+      sleep: noSleep,
+    });
 
     expect(summary.ok).toBe(false);
     expect(summary.steps).toHaveLength(3);
@@ -141,7 +158,11 @@ describe('runWellnessSync', () => {
 
   it('never puts a credential or host in the summary', async () => {
     const config = await loadFake();
-    const summary = await runWellnessSync(config, { fetch: happyFetch(), now: clock() });
+    const summary = await runWellnessSync(config, {
+      fetch: happyFetch(),
+      now: clock(),
+      sleep: noSleep,
+    });
 
     const serialised = JSON.stringify(summary);
     expect(serialised).not.toContain(config.wl.clientSecret);
