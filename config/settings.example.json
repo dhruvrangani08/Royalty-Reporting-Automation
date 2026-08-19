@@ -4,6 +4,7 @@
 
   "wellnessliving": {
     "host": "FILL_ME",
+    "authHost": "FILL_ME",
     "idRegion": "FILL_ME",
     "kBusiness": "FILL_ME",
     "clientId": "FILL_ME",

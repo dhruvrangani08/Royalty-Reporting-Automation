@@ -22,7 +22,7 @@
     "test:coverage": "vitest run --coverage",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test",
     "start": "node --env-file-if-exists=.env dist/cli/main.js",
-    "dev": "node --experimental-strip-types --env-file-if-exists=.env src/cli/main.ts",
+    "dev": "npm run --silent build && node --env-file-if-exists=.env dist/cli/main.js",
     "healthcheck": "npm run --silent dev -- healthcheck"
   },
   "dependencies": {

@@ -38,5 +38,31 @@ export {
   type SecretsProvider,
 } from './secrets/types.js';
 
-export { checkAll, checkSupabaseReachable, type HealthCheckResult } from './supabase/health.js';
-export { buildWlUrl, WL_PATHS, type WlPathName } from './wl/endpoint.js';
+export { checkAll, type HealthCheckResult, type HealthProbeDeps } from './health/index.js';
+export { checkSupabaseReachable } from './supabase/health.js';
+export {
+  WlClient,
+  WlRequestError,
+  type WlClientDeps,
+  type WlErrorDetails,
+  type WlFailureKind,
+  type WlRequestOptions,
+  type WlResponse,
+} from './wl/client.js';
+export { buildWlAuthUrl, buildWlUrl, WL_PATHS, type WlPathName } from './wl/endpoint.js';
+export {
+  runWellnessSync,
+  type WellnessSyncDeps,
+  type WellnessSyncStep,
+  type WellnessSyncSummary,
+} from './wl/sync.js';
+export { isAuthorized, isAuthorizedByAny } from './http/bearer.js';
+export type { HttpRequest, HttpResponse } from './http/types.js';
+export { checkWlAuth, type WlHealthDeps } from './wl/health.js';
+export {
+  WlAuthError,
+  WlTokenClient,
+  type WlAuthFailureKind,
+  type WlTokenClientDeps,
+  type WlTokenStatus,
+} from './wl/token.js';

@@ -14,6 +14,7 @@ const FILES: Record<string, string> = {
     environment: 'dev',
     wellnessliving: {
       host: 'wl-uat.example.test',
+      authHost: 'wl-auth-uat.example.test',
       idRegion: 2,
       kBusiness: '111111',
       clientId: 'dev-client-id-0000',
@@ -29,6 +30,7 @@ const FILES: Record<string, string> = {
     environment: 'prod',
     wellnessliving: {
       host: 'wl-live.example.test',
+      authHost: 'wl-auth-live.example.test',
       idRegion: 1,
       kBusiness: '222222',
       clientId: 'prod-client-id-0000',
@@ -65,6 +67,8 @@ describe('settings file per environment', () => {
 
     expect(dev.wl.host).toBe('wl-uat.example.test');
     expect(prod.wl.host).toBe('wl-live.example.test');
+    expect(dev.wl.authHost).toBe('wl-auth-uat.example.test');
+    expect(prod.wl.authHost).toBe('wl-auth-live.example.test');
     expect(dev.wl.idRegion).toBe(2);
     expect(prod.wl.idRegion).toBe(1);
     expect(dev.wl.kBusiness).not.toBe(prod.wl.kBusiness);

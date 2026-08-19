@@ -7,6 +7,7 @@ import type { AppEnv, SecretBundle, SecretsProvider } from '../../src/secrets/ty
 export const FAKE_BUNDLES: Record<AppEnv, Required<SecretBundle>> = {
   dev: {
     WL_API_HOST: 'wl-dev.example.test',
+    WL_AUTH_HOST: 'wl-auth-dev.example.test',
     WL_ID_REGION: '2',
     WL_K_BUSINESS: '111111',
     WL_CLIENT_ID: 'dev-client-id-0000',
@@ -18,6 +19,7 @@ export const FAKE_BUNDLES: Record<AppEnv, Required<SecretBundle>> = {
   },
   prod: {
     WL_API_HOST: 'wl-prod.example.test',
+    WL_AUTH_HOST: 'wl-auth-prod.example.test',
     WL_ID_REGION: '1',
     WL_K_BUSINESS: '222222',
     WL_CLIENT_ID: 'prod-client-id-0000',
