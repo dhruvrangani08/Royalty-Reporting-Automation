@@ -12,6 +12,7 @@ export type {
 export { ConfigValidationError } from './config/schema.js';
 
 export { createLogger, type Logger } from './logging/logger.js';
+export { createDefaultFileSinks, createFileSink, type LogSink } from './logging/file-sink.js';
 export {
   credentialValues,
   describeConfig,

@@ -62,5 +62,7 @@ export function describeConfig(config: AppConfig): Record<string, string> {
     logLevel: config.runtime.logLevel,
     maxConcurrency: String(config.runtime.maxConcurrency),
     requestsPerSecond: String(config.runtime.requestsPerSecond),
+    logToFile: String(config.runtime.logToFile),
+    logDir: config.runtime.logDir,
   };
 }

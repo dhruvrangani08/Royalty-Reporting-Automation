@@ -87,6 +87,9 @@ function routed(...dataResponses: Array<() => Response>) {
   });
 }
 
+/** The rate limiter is exercised in tests/wl-rate-limit.test.ts; here it must not wait. */
+const noSleep = (): Promise<void> => Promise.resolve();
+
 const clock = () => {
   let t = 0;
   return () => (t += 5);
@@ -98,6 +101,7 @@ describe('an error carried on HTTP 200 never becomes data', () => {
     const summary = await runWellnessSync(config, {
       fetch: routed(() => errorWith200()),
       now: clock(),
+      sleep: noSleep,
     });
 
     for (const step of summary.steps) {
@@ -112,6 +116,7 @@ describe('an error carried on HTTP 200 never becomes data', () => {
     const summary = await runWellnessSync(config, {
       fetch: routed(() => errorWith200()),
       now: clock(),
+      sleep: noSleep,
     });
 
     expect(summary.ok).toBe(false);
@@ -123,6 +128,7 @@ describe('an error carried on HTTP 200 never becomes data', () => {
     const summary = await runWellnessSync(config, {
       fetch: routed(() => errorWith200('id-empty')),
       now: clock(),
+      sleep: noSleep,
     });
 
     const [first] = summary.steps;
@@ -141,6 +147,7 @@ describe('an error carried on HTTP 200 never becomes data', () => {
         () => okResponse(),
       ),
       now: clock(),
+      sleep: noSleep,
     });
 
     const [failed, ...rest] = summary.steps;
@@ -169,6 +176,7 @@ describe('an error carried on HTTP 200 never becomes data', () => {
         () => new Response(JSON.stringify({ ...body, a_staff: { 'uid-1': {} } }), { status: 200 }),
       ),
       now: clock(),
+      sleep: noSleep,
     });
 
     expect(summary.ok).toBe(false);
@@ -183,6 +191,7 @@ describe('an error carried on HTTP 200 never becomes data', () => {
     const summary = await runWellnessSync(config, {
       fetch: routed(() => new Response('<html>maintenance</html>', { status: 200 })),
       now: clock(),
+      sleep: noSleep,
     });
 
     expect(summary.ok).toBe(false);

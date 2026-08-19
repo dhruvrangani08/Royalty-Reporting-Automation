@@ -57,15 +57,20 @@ function tokenResponse(token = 'tok-1'): Response {
 }
 
 /** Serves the token endpoint, and routes data calls to the supplied responses. */
-function routed(...dataResponses: Response[]) {
+function routed(...dataResponses: Array<Response | (() => Response)>) {
   let dataCall = 0;
   return vi.fn<typeof globalThis.fetch>().mockImplementation((input) => {
     if (calledUrl(input).includes('/oauth2/token')) return Promise.resolve(tokenResponse());
     const next = dataResponses[dataCall] ?? dataResponses[dataResponses.length - 1];
     dataCall += 1;
-    return Promise.resolve(next ?? ok());
+    if (next === undefined) return Promise.resolve(ok());
+    // A factory, when the call may be retried: a Response body reads once only.
+    return Promise.resolve(typeof next === 'function' ? next() : next);
   });
 }
+
+/** Transient failures now back off before retrying; no test should wait it out. */
+const noSleep = (): Promise<void> => Promise.resolve();
 
 const clock = () => {
   let t = 0;
@@ -188,7 +193,11 @@ describe('WlClient - HTTP 200 that is actually an error', () => {
 
   it('classifies a throttling sid as transient', async () => {
     const wl = await wlConfig();
-    const client = new WlClient(wl, { fetch: routed(errorEnvelope('rate-limit')), now: clock() });
+    const client = new WlClient(wl, {
+      fetch: routed(() => errorEnvelope('rate-limit')),
+      now: clock(),
+      sleep: noSleep,
+    });
 
     const error = (await client.request('/v1/user').catch((e: unknown) => e)) as WlRequestError;
     expect(error.kind).toBe('transient');
@@ -280,8 +289,9 @@ describe('WlClient - failure classification and retry', () => {
       [400, 'permanent'],
     ] as const) {
       const client = new WlClient(wl, {
-        fetch: routed(new Response('{}', { status })),
+        fetch: routed(() => new Response('{}', { status })),
         now: clock(),
+        sleep: noSleep,
       });
       const error = (await client
         .request('/v1/business')
@@ -296,7 +306,12 @@ describe('WlClient - failure classification and retry', () => {
       if (calledUrl(input).includes('/oauth2/token')) return Promise.resolve(tokenResponse());
       return Promise.reject(Object.assign(new Error('aborted'), { name: 'TimeoutError' }));
     });
-    const client = new WlClient(wl, { fetch: fetchMock, now: clock(), timeoutMs: 10_000 });
+    const client = new WlClient(wl, {
+      fetch: fetchMock,
+      now: clock(),
+      timeoutMs: 10_000,
+      sleep: noSleep,
+    });
 
     const error = (await client.request('/v1/business').catch((e: unknown) => e)) as WlRequestError;
     expect(error.kind).toBe('transient');

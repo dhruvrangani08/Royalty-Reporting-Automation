@@ -19,6 +19,10 @@ service-account*.json
 config/settings.*.json
 !config/settings.example.json
 
+# ---- log files: may contain business data ----
+logs/
+*.log
+
 # ---- node ----
 node_modules/
 dist/
