@@ -130,7 +130,6 @@ describe('loadConfig', () => {
     expect(defaults.runtime).toMatchObject({
       logLevel: 'info',
       maxConcurrency: 5,
-      requestsPerSecond: 5,
     });
 
     const tuned = await loadConfig({
@@ -138,14 +137,12 @@ describe('loadConfig', () => {
         APP_ENV: 'dev',
         LOG_LEVEL: 'debug',
         WL_MAX_CONCURRENCY: '2',
-        WL_REQUESTS_PER_SECOND: '3',
       },
       provider: new FakeProvider(),
     });
     expect(tuned.runtime).toMatchObject({
       logLevel: 'debug',
       maxConcurrency: 2,
-      requestsPerSecond: 3,
     });
   });
 

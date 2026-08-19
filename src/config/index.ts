@@ -65,7 +65,6 @@ export async function loadConfig(input: LoadConfigInput = {}): Promise<AppConfig
   const runtime = runtimeOptionsSchema.safeParse({
     LOG_LEVEL: processEnv.LOG_LEVEL,
     WL_MAX_CONCURRENCY: processEnv.WL_MAX_CONCURRENCY,
-    WL_REQUESTS_PER_SECOND: processEnv.WL_REQUESTS_PER_SECOND,
     HTTP_TIMEOUT_MS: processEnv.HTTP_TIMEOUT_MS,
     LOG_TO_FILE: processEnv.LOG_TO_FILE,
     LOG_DIR: processEnv.LOG_DIR,
@@ -99,7 +98,6 @@ export async function loadConfig(input: LoadConfigInput = {}): Promise<AppConfig
     runtime: Object.freeze({
       logLevel: runtime.data.LOG_LEVEL,
       maxConcurrency: runtime.data.WL_MAX_CONCURRENCY,
-      requestsPerSecond: runtime.data.WL_REQUESTS_PER_SECOND,
       httpTimeoutMs: runtime.data.HTTP_TIMEOUT_MS,
       logToFile: runtime.data.LOG_TO_FILE,
       logDir: runtime.data.LOG_DIR,

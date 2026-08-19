@@ -87,7 +87,7 @@ function routed(...dataResponses: Array<() => Response>) {
   });
 }
 
-/** The rate limiter is exercised in tests/wl-rate-limit.test.ts; here it must not wait. */
+/** Throttle backoff is exercised in tests/wl-retry.test.ts; here it must not wait. */
 const noSleep = (): Promise<void> => Promise.resolve();
 
 const clock = () => {
