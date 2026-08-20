@@ -1,0 +1,206 @@
+# Architecture
+
+Where everything lives, and why it is arranged this way. For "how do I run it" see
+[README.md](../README.md); for the tables see [DATA-MODEL.md](DATA-MODEL.md); for
+what is built and what is not see [STATUS.md](STATUS.md).
+
+## The shape of the thing
+
+```
+WellnessLiving ──┐
+                 ├──> sync service ──> Supabase ──> royalty reports
+GoHighLevel ─────┘                        │
+                                          └──> student portal (later)
+```
+
+One nightly pass reads WellnessLiving, matches people against GoHighLevel, and
+lands everything in Supabase. Reports and a portal read from there. The service
+never writes back to either API.
+
+## Module map
+
+```
+src/
+  config/        resolving and validating configuration
+  secrets/       where credentials come from
+  wl/            the WellnessLiving client
+  supabase/      Supabase health probe
+  logging/       structured logging and redaction
+  http/          shared HTTP-route concerns
+  health/        dependency probes
+  cli/           the command-line entry point
+api/             Vercel serverless routes
+supabase/
+  migrations/    schema, applied in numeric order
+  checks/        read-only verification scripts
+tests/           one file per concern, mirroring src/
+```
+
+## Where things are defined
+
+### Configuration
+
+| Question | File |
+|---|---|
+| What settings exist, and their types | [`src/config/schema.ts`](../src/config/schema.ts) |
+| How they are resolved and frozen | [`src/config/index.ts`](../src/config/index.ts) |
+| The one shape every provider uses | [`src/secrets/settings-shape.ts`](../src/secrets/settings-shape.ts) |
+| Reading from `.env` | [`src/secrets/env-provider.ts`](../src/secrets/env-provider.ts) |
+| Reading from `config/settings.<env>.json` | [`src/secrets/file-provider.ts`](../src/secrets/file-provider.ts) |
+| Reading from AWS Secrets Manager | [`src/secrets/aws-secrets-manager-provider.ts`](../src/secrets/aws-secrets-manager-provider.ts) |
+
+**One shape, three providers.** `APP_ENV` selects a whole bundle, so the WL host,
+region and business id always move together — a config can never be half dev and
+half prod. `SECRETS_PROVIDER` selects where that bundle is read from.
+
+**It fails closed.** `loadConfig()` validates with Zod and throws before the first
+API call, naming every missing or placeholder key. A run that cannot be configured
+correctly does not start.
+
+### WellnessLiving
+
+| Question | File |
+|---|---|
+| Getting and caching a token | [`src/wl/token.ts`](../src/wl/token.ts) |
+| Every data call, and the success check | [`src/wl/client.ts`](../src/wl/client.ts) |
+| URL building and the endpoint list | [`src/wl/endpoint.ts`](../src/wl/endpoint.ts) |
+| Backoff and requeue timing | [`src/wl/retry.ts`](../src/wl/retry.ts) |
+| Running many calls inside a time budget | [`src/wl/batch.ts`](../src/wl/batch.ts) |
+| Trace ids | [`src/wl/trace.ts`](../src/wl/trace.ts) |
+| One sync pass | [`src/wl/sync.ts`](../src/wl/sync.ts) |
+| Auth reachability probe | [`src/wl/health.ts`](../src/wl/health.ts) |
+
+Four things about this client are worth knowing before changing it:
+
+**Success is read from the body, never the status code.** WL answers HTTP 200 for
+errors. `WlClient.attempt()` asserts `status === "ok"` before returning anything,
+and this is enforced in one place so no job can skip it — there is a structural
+test in [`tests/wl-error-200.test.ts`](../tests/wl-error-200.test.ts) that fails if
+any module outside the client calls `fetch` itself.
+
+**Failures are classified, not just counted.** `auth` invalidates the token and
+retries once. `permanent` (a bad parameter) fails on the first call. `transient`
+(throttle, timeout) backs off. See [`src/wl/client.ts`](../src/wl/client.ts) for
+the `sid` patterns.
+
+**There is no client-side rate limit, deliberately.** WL publishes none, and
+measurement found none. What remains is reaction: a widening jittered backoff and
+a requeue schedule. `WL_MAX_CONCURRENCY` bounds items in flight, which is not a
+request rate.
+
+**Every call carries our own trace id.** `runId.seq`, so one grep of a `runId`
+returns a whole pass in order. WL's `k_log` is captured where it exists, which is
+not most endpoints — see [WL-API-NOTES.md](WL-API-NOTES.md).
+
+### Entry points
+
+| Question | File |
+|---|---|
+| CLI commands — `healthcheck`, `sync:wellness`, `config:check`, `config:show` | [`src/cli/main.ts`](../src/cli/main.ts) |
+| Everything the package exports | [`src/index.ts`](../src/index.ts) |
+| Vercel health route | [`api/health.ts`](../api/health.ts) |
+| Vercel sync route | [`api/wellness-sync.ts`](../api/wellness-sync.ts) |
+
+The CLI and the routes are thin: both resolve config, build a client, and call the
+same functions. Nothing lives only in an entry point.
+
+### Health, HTTP and shared types
+
+| Question | File |
+|---|---|
+| Running every dependency probe | [`src/health/index.ts`](../src/health/index.ts) |
+| The probe result shape | [`src/health/types.ts`](../src/health/types.ts) |
+| Supabase reachability and key acceptance | [`src/supabase/health.ts`](../src/supabase/health.ts) |
+| Constant-time bearer check for routes | [`src/http/bearer.ts`](../src/http/bearer.ts) |
+| Route request/response shapes | [`src/http/types.ts`](../src/http/types.ts) |
+| Provider selection | [`src/secrets/index.ts`](../src/secrets/index.ts) |
+| Secret bundle and env types | [`src/secrets/types.ts`](../src/secrets/types.ts) |
+
+`isAuthorized()` returns false when no token is configured — an unset secret must
+LOCK a route, never open it.
+
+### Logging
+
+| Question | File |
+|---|---|
+| The logger, levels, fan-out | [`src/logging/logger.ts`](../src/logging/logger.ts) |
+| Credential scrubbing and fingerprinting | [`src/logging/redact.ts`](../src/logging/redact.ts) |
+| Log files and rotation | [`src/logging/file-sink.ts`](../src/logging/file-sink.ts) |
+
+**Redaction happens once, before fan-out.** Sinks receive a finished string, never
+fields they could format themselves. That ordering is the guarantee: a transport
+cannot reintroduce a secret the console never showed. A log file is the one place
+a leak outlives the process.
+
+File logging is opt-in (`LOG_TO_FILE`) because on Vercel the filesystem is
+read-only apart from an ephemeral `/tmp`.
+
+### Database
+
+Migrations are numbered and applied in order. Each one is self-contained and safe
+to re-run.
+
+| Migration | Contents |
+|---|---|
+| `0000` | Reset helper for the superseded first draft |
+| `0001` | `person`, `lead`, `client`/`teacher` views |
+| `0002` | `location`, `service`, `purchase`, `purchase_item`, `purchase_payment`, `purchase_account_credit` |
+| `0003` | View security fix |
+| `0004` | `session`, `session_staff`, `attendance` |
+| `0005`–`0006` | `created_at`/`updated_at`/`synced_at` and the trigger, everywhere |
+| `0007` | `sync_queue`, `sync_job_state`, `sync_run`, `sync_conflict` |
+| `0008` | `raw_wl`, `raw_ghl` |
+| `0009` | `raw_link` |
+| `0010` | Health views, supporting views, RLS policies |
+
+`supabase/checks/` holds read-only verification scripts — RLS bypass and isolation
+proofs. They are not migrations and change nothing.
+
+## How a sync pass runs
+
+```
+loadConfig()                     fail closed if anything is missing
+  │
+  ├─ ensureAuthenticated()       one token, before any data call
+  │
+  ├─ runBatch(steps)             concurrent, budget-aware
+  │    │
+  │    └─ per item: client.request()
+  │         ├─ traceId assigned
+  │         ├─ status === "ok" asserted
+  │         ├─ transient? backoff and retry
+  │         └─ ladder spent? throw with requeueAfterMs
+  │
+  └─ summary { runId, steps, skipped, tokenFetches }
+```
+
+**Authenticate first, always.** A bad credential found on call one of three
+thousand is the same failure as one found up front, but only one of them is
+legible in a cron log.
+
+**The budget is checked before starting an item, never mid-flight.** Abandoning a
+call already in flight leaves the API doing work nobody reads. Whatever was never
+started comes back in `remaining`, so the next invocation resumes with exactly
+those.
+
+## Conventions
+
+**All WellnessLiving keys are `text`.** They arrive as JSON strings and `k_` values
+are text throughout. As integers a leading zero is lost.
+
+**Money is `numeric(12,2)`, never float.** WL sends `"280.00"` as a string. A
+rounding error inside a royalty percentage is a support ticket.
+
+**`dt_` is UTC, `dtl_` is local.** WL's own convention, confirmed live. Purchases
+store UTC only; sessions store both — see [DATA-MODEL.md](DATA-MODEL.md).
+
+**Composite keys are joined with `|`** when they have to live in one text column,
+in primary-key order. Used by `sync_queue.target_key`, `raw_link.record_key` and
+`raw_wl.target_key`.
+
+**Hosts never appear in source, logs or stored records.** A host is configuration.
+[`tests/no-hardcoded-config.test.ts`](../tests/no-hardcoded-config.test.ts) scans
+`src/` and `api/` and fails if one appears.
+
+**Tests are named after the behaviour, not the function.** And a test that cannot
+fail is not a test — behaviour is verified by mutation, not by watching green.
