@@ -26,7 +26,9 @@ records a `sync_job_state` row — `running` → `idle`/`paused`/`failed`, with
 incremental sync will trust). Still to come: the `sync_job_state` **page cursor**
 (`page_number`/`report_handle`, unused until a paginated endpoint like
 `/v1/report/data`); `sync_conflict` creation; and the full client base (blocked
-upstream — no client-list endpoint).
+upstream — no client-list endpoint). **Location and service detail (P5.6) now land**:
+`location/list` fills `location.title` + timezone, and `service.title`/`is_package`
+are derived from purchase items (WL exposes no service-detail endpoint).
 
 ## Done
 

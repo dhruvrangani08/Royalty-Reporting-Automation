@@ -49,13 +49,26 @@ export type PurchaseItemRow = {
   readonly dt_add: string | null;
 };
 
+/**
+ * A `service` row derived from a purchase item. WL exposes no service-detail
+ * endpoint (all /v1/service* paths 404), so the catalogue's human-readable bits -
+ * title, is_package - are taken from the transactions that reference it. Upserted
+ * on k_service, so this enriches the FK stub in place.
+ */
+export type ServiceRow = {
+  readonly k_service: string;
+  readonly k_business: string;
+  readonly title: string | null;
+  readonly is_package: boolean;
+};
+
 export interface ParsedPurchases {
   readonly purchases: readonly PurchaseRow[];
   readonly items: readonly PurchaseItemRow[];
   /** Distinct non-null k_location values, for the location stub upsert. */
   readonly locationKeys: readonly string[];
-  /** Distinct non-null k_service values, for the service stub upsert. */
-  readonly serviceKeys: readonly string[];
+  /** Service rows (key + title + is_package) derived from the items. */
+  readonly services: readonly ServiceRow[];
 }
 
 /**
@@ -70,7 +83,7 @@ export function parsePurchaseList(
   uidPayer: string,
 ): ParsedPurchases {
   const records = asRecord(asRecord(body)?.a_purchase);
-  if (records === null) return { purchases: [], items: [], locationKeys: [], serviceKeys: [] };
+  if (records === null) return { purchases: [], items: [], locationKeys: [], services: [] };
 
   // Keyed by their primary keys: WL can repeat a k_purchase_item across records,
   // and an upsert batch that names the same conflict key twice is rejected by
@@ -78,7 +91,7 @@ export function parsePurchaseList(
   const items = new Map<string, PurchaseItemRow>();
   const purchases = new Map<string, PurchaseRow>();
   const locationKeys = new Set<string>();
-  const serviceKeys = new Set<string>();
+  const services = new Map<string, ServiceRow>();
 
   for (const value of Object.values(records)) {
     const rec = asRecord(value);
@@ -86,12 +99,22 @@ export function parsePurchaseList(
     const kPurchase = readString(rec, 'k_purchase');
     if (kItem === null || kPurchase === null) continue; // no keys, nothing to store
 
-    const kLocation = readString(rec, 'k_location');
+    // WL uses "0" as a placeholder for "no location"; treat it as null so we do
+    // not stub a fake location row and point purchases at it.
+    const rawLocation = readString(rec, 'k_location');
+    const kLocation = rawLocation === '0' ? null : rawLocation;
     const kService = readString(rec, 'k_service');
     const dtAdd = readString(rec, 'dt_add');
     const isActive = wlBool(rec?.is_active);
     if (kLocation !== null) locationKeys.add(kLocation);
-    if (kService !== null) serviceKeys.add(kService);
+    if (kService !== null) {
+      services.set(kService, {
+        k_service: kService,
+        k_business: kBusiness,
+        title: readString(rec, 's_title'),
+        is_package: wlBool(rec?.is_package),
+      });
+    }
 
     items.set(kItem, {
       k_purchase_item: kItem,
@@ -128,7 +151,7 @@ export function parsePurchaseList(
     purchases: [...purchases.values()],
     items: [...items.values()],
     locationKeys: [...locationKeys],
-    serviceKeys: [...serviceKeys],
+    services: [...services.values()],
   };
 }
 
@@ -162,7 +185,7 @@ export async function writePurchaseList(
     response: input.response,
   });
 
-  const { purchases, items, locationKeys, serviceKeys } = parsePurchaseList(
+  const { purchases, items, locationKeys, services } = parsePurchaseList(
     input.response.body,
     input.kBusiness,
     input.uidPayer,
@@ -178,12 +201,8 @@ export async function writePurchaseList(
       { onConflict: 'k_location' },
     );
   }
-  if (serviceKeys.length > 0) {
-    await db.upsert(
-      'service',
-      serviceKeys.map((k_service) => ({ k_service, k_business: input.kBusiness })),
-      { onConflict: 'k_service' },
-    );
+  if (services.length > 0) {
+    await db.upsert('service', services, { onConflict: 'k_service' });
   }
 
   if (purchases.length > 0) {

@@ -9,8 +9,8 @@ Sorted by status (done last), then priority, then ID.
 | 017 | P5.1 — request the client report and wait for it to finish | backlog | high | — | `backlog/017-client-report-request/` |
 | 018 | P5.2 — read the client report page by page | backlog | high | 017 | `backlog/018-client-report-paged-read/` |
 | 019 | P5.3 — save clients into person without duplicates | backlog | high | 018 | `backlog/019-save-clients-dedup/` |
-| 020 | P5.6 — pull service, category and location details | backlog | medium | — | `backlog/020-service-location-detail/` |
 | 016 | sync_job_state — per-job progress and the clean-completion watermark | done | high | 012 | `done/016-sync-job-state-progress/` |
+| 020 | P5.6 — pull service, category and location details | done | medium | — | `done/020-service-location-detail/` |
 | 001 | Bound the in-process retry ladder by attempts, not by delay source | done | critical | — | `done/001-bound-retry-ladder-attempts/` |
 | 004 | Give a request a total deadline derived from the pass budget | done | medium | 001 | `done/004-request-deadline-from-budget/` |
 | 002 | Classify body-read failures as transient | done | high | — | `done/002-classify-body-read-failures/` |

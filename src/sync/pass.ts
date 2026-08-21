@@ -3,6 +3,7 @@ import { SupabaseClient } from '../supabase/client.js';
 import { WlClient, WlRequestError } from '../wl/client.js';
 import { WL_PATHS } from '../wl/endpoint.js';
 import { closeJobState, openJobState } from './job-state.js';
+import { writeLocationList } from './locations.js';
 import { writePurchaseList } from './purchases.js';
 import { enqueue, outcomeFromWlError, type QueueHandler, runQueue } from './queue.js';
 import { writeReceipt } from './receipts.js';
@@ -91,6 +92,40 @@ export function runStaffSyncPass(
             priorAttempt: item.attempt_count,
           });
           await writeStaffList(db, { kBusiness, response, runId });
+          return { kind: 'done' };
+        } catch (error) {
+          if (error instanceof WlRequestError) return outcomeFromWlError(error);
+          throw error;
+        }
+      },
+  });
+}
+
+/**
+ * Runs the location sync: one job that lists locations and enriches their detail
+ * (title, timezone) over the stubs the purchase writer left. One WL call.
+ */
+export function runLocationSyncPass(
+  config: AppConfig,
+  deps: SyncPassDeps = {},
+): Promise<SyncPassSummary> {
+  return runPass(config, deps, {
+    jobName: 'location_sync',
+    workType: 'location_list',
+    seed: ({ db, kBusiness, nowIso }) =>
+      enqueue(
+        db,
+        [{ work_type: 'location_list', target_key: 'all', k_business: kBusiness }],
+        nowIso(),
+      ).then(() => undefined),
+    makeHandler:
+      ({ wl, db, kBusiness, runId }) =>
+      async (item) => {
+        try {
+          const response = await wl.request(WL_PATHS.locationList, {
+            priorAttempt: item.attempt_count,
+          });
+          await writeLocationList(db, { kBusiness, response, runId });
           return { kind: 'done' };
         } catch (error) {
           if (error instanceof WlRequestError) return outcomeFromWlError(error);

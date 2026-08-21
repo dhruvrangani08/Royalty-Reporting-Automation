@@ -1,7 +1,7 @@
 ---
 id: 020
 title: P5.6 — pull service, category and location details
-status: backlog
+status: done
 priority: medium
 depends_on: []
 created: 2026-08-21
@@ -38,10 +38,10 @@ WL-API-NOTES before building.
 
 ## Acceptance criteria
 
-- [ ] `location` rows carry title + timezone from `/v1/location/list`
-- [ ] `service` rows carry title/program/sale/package from the confirmed endpoint
-- [ ] Upserts enrich existing stubs without duplicating or clobbering
-- [ ] Parser tests + a live proof; WL-API-NOTES records the service endpoint
+- [x] `location` rows carry title + timezone from `/v1/location/list`
+- [x] `service` rows carry title/program/sale/package from the confirmed endpoint
+- [x] Upserts enrich existing stubs without duplicating or clobbering
+- [x] Parser tests + a live proof; WL-API-NOTES records the service endpoint
 
 ## Constraints & notes
 

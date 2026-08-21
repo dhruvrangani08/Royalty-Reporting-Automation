@@ -56,6 +56,17 @@ describe('parsePurchaseList', () => {
     expect([...locationKeys].sort()).toEqual(['loc-1', 'loc-2']);
   });
 
+  it('derives service rows (title + is_package) from the items - no service endpoint exists', () => {
+    const { services } = parsePurchaseList(purchaseBody(), K_BUSINESS, UID);
+    // svc-9 appears on item-1 with title "Yoga 10-pack".
+    expect(services.find((s) => s.k_service === 'svc-9')).toEqual({
+      k_service: 'svc-9',
+      k_business: K_BUSINESS,
+      title: 'Yoga 10-pack',
+      is_package: false,
+    });
+  });
+
   it('maps an item, coercing id_* to integers and keeping keys as text', () => {
     const { items } = parsePurchaseList(purchaseBody(), K_BUSINESS, UID);
     const first = items.find((i) => i.k_purchase_item === 'item-1')!;
@@ -81,6 +92,15 @@ describe('parsePurchaseList', () => {
     const { items } = parsePurchaseList(body, K_BUSINESS, UID);
     expect(items).toHaveLength(1);
     expect(items[0]!.text_title).toBe('second'); // last write wins
+  });
+
+  it('treats k_location "0" as no location, not a stub', () => {
+    const body = {
+      a_purchase: { '0': { k_purchase_item: 'i', k_purchase: 'p', k_location: '0' } },
+    };
+    const { purchases, locationKeys } = parsePurchaseList(body, K_BUSINESS, UID);
+    expect(locationKeys).toEqual([]); // no fake location "0" stubbed
+    expect(purchases[0]!.k_location).toBeNull();
   });
 
   it('skips a record missing its keys, and handles an empty body', () => {

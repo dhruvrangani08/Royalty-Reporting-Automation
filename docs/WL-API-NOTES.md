@@ -172,6 +172,20 @@ one call per `k_purchase`:
 Trap: **`a_purchase_item[].k_purchase_item` comes back as a NUMBER here**, though the
 list endpoint sends the same key as a string. Coerce to text or the item is lost.
 
+### Services and locations (probed live 21 Aug 2026)
+
+- **`/v1/location/list`** carries the detail: `s_title` (name) and an `a_timezone`
+  object whose `text_name` is the IANA zone (`"America/New_York"`). `k_timezone` is
+  a bare key, not a zone — use `a_timezone.text_name`.
+- **There is NO service-detail endpoint.** `/v1/service`, `/v1/staff/service` and
+  `/v1/business/service` all 404. A service's human bits (`title`, `is_package`) are
+  taken from the purchase items that reference it — derived from transactions, not a
+  catalogue pull.
+- **Categories** need no entity: `purchase_item.text_category` from the receipt is
+  enough.
+- **`k_location "0"` means "no location"** — a placeholder, stored as null rather
+  than a stub row (like the `"0"` placeholders WL uses elsewhere).
+
 ### Field notes worth remembering
 
 | Field | Note |

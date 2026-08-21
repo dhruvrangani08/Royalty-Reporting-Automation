@@ -72,6 +72,7 @@ correctly does not start.
 | Writing WL responses to Supabase (raw_wl → typed rows → raw_link) | [`src/sync/writer.ts`](../src/sync/writer.ts) |
 | Writing purchases (list → purchase + purchase_item, stub FKs) | [`src/sync/purchases.ts`](../src/sync/purchases.ts) |
 | Enriching purchases with money (receipt → totals, payments, credit) | [`src/sync/receipts.ts`](../src/sync/receipts.ts) |
+| Location detail (location/list → title, timezone) | [`src/sync/locations.ts`](../src/sync/locations.ts) |
 | The durable sync_queue loop (claim, settle, requeue, dead-letter) | [`src/sync/queue.ts`](../src/sync/queue.ts) |
 | One bounded sync pass (sync_run accounting + queue drain) | [`src/sync/pass.ts`](../src/sync/pass.ts) |
 | Per-job lifecycle + clean-completion watermark (sync_job_state) | [`src/sync/job-state.ts`](../src/sync/job-state.ts) |
