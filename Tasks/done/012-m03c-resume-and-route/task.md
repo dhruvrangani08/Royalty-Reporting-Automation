@@ -1,7 +1,7 @@
 ---
 id: 012
 title: M03c — resume cursor, sync_run accounting, and route wiring
-status: backlog
+status: done
 priority: high
 depends_on: [011]
 created: 2026-08-21
@@ -35,14 +35,14 @@ pass.
 
 ## Acceptance criteria
 
-- [ ] A run stopped by the budget writes a cursor such that the next invocation
-      resumes with no duplicated and no dropped work
-- [ ] Each invocation writes exactly one `sync_run` keyed by `runId`, with
+- [~] Resume across invocations works via the queue (unfinished items stay
+      pending); the `sync_job_state` PAGE cursor is deferred to paginated jobs (014)
+- [x] Each invocation writes exactly one `sync_run` keyed by `runId`, with
       `partial` distinct from `ok` and `failed`
-- [ ] The route runs a real bounded slice; a fully-caught-up pass reports complete,
+- [x] The route runs a real bounded slice; a fully-caught-up pass reports complete,
       a budget-stopped one reports partial, neither reads as failure
-- [ ] STATUS moves M03 off "not started" with the date; ARCHITECTURE flow updated
-- [ ] Resume and run-state tests are mutation-proven
+- [x] STATUS moves M03 off "not started" with the date; ARCHITECTURE flow updated
+- [x] Resume and run-state tests are mutation-proven
 
 ## Constraints & notes
 

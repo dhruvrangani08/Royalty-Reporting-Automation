@@ -13,6 +13,12 @@ vi.mock('../src/config/index.js', async () => {
   return { ...actual, loadConfig: loadConfigMock };
 });
 
+// The sync pass itself is tested in sync-pass.test.ts; here it is mocked so the
+// route's own job - mapping the verdict to a status - is what gets exercised,
+// with no real WL or Supabase calls.
+const { passMock } = vi.hoisted(() => ({ passMock: vi.fn() }));
+vi.mock('../src/sync/pass.js', () => ({ runStaffSyncPass: passMock }));
+
 const TOKEN = 'sync-trigger-token-0000';
 
 function request(overrides: Partial<HttpRequest> = {}): HttpRequest {
@@ -135,33 +141,55 @@ describe('/api/wellness-sync - the verdict', () => {
     expect(body.detail).toContain('WL_CLIENT_ID');
   });
 
-  it('returns 503, not 200, when a step fails', async () => {
+  /** Full valid env so loadConfig resolves and the handler reaches the pass. */
+  function stubResolvableEnv(): void {
     vi.stubEnv('SYNC_TRIGGER_TOKEN', TOKEN);
     vi.stubEnv('APP_ENV', 'dev');
-    vi.stubEnv('WL_API_HOST', 'wl.example.test');
-    vi.stubEnv('WL_AUTH_HOST', 'wl-auth.example.test');
-    vi.stubEnv('WL_ID_REGION', '1');
-    vi.stubEnv('WL_K_BUSINESS', '111111');
-    vi.stubEnv('WL_CLIENT_ID', 'client-id-0000');
-    vi.stubEnv('WL_CLIENT_SECRET', 'client-secret-0000');
-    vi.stubEnv('SUPABASE_URL', 'https://project.supabase.example.test');
-    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-role-key-0000');
-    vi.stubEnv('GHL_API_TOKEN', 'ghl-token-0000');
-    vi.stubEnv('GHL_LOCATION_ID', 'location-0000');
+    const env: Record<string, string> = {
+      WL_API_HOST: 'wl.example.test',
+      WL_AUTH_HOST: 'wl-auth.example.test',
+      WL_ID_REGION: '1',
+      WL_K_BUSINESS: '111111',
+      WL_CLIENT_ID: 'client-id-0000',
+      WL_CLIENT_SECRET: 'client-secret-0000',
+      SUPABASE_URL: 'https://project.supabase.example.test',
+      SUPABASE_SERVICE_ROLE_KEY: 'service-role-key-0000',
+      GHL_API_TOKEN: 'ghl-token-0000',
+      GHL_LOCATION_ID: 'location-0000',
+    };
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+  }
 
-    // Credentials resolve, but WL refuses them: a real partial-failure verdict.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response('{}', { status: 401 })),
-    );
+  it('returns 503 when the pass verdict is failed', async () => {
+    stubResolvableEnv();
+    passMock.mockResolvedValueOnce({ runId: 'r', state: 'failed', error: 'Error' });
     const { res, sent } = makeResponse();
 
     await handler(request(), res);
 
     expect(sent.status).toBe(503);
-    const body = sent.body as { ok: boolean; authError?: string };
-    expect(body.ok).toBe(false);
-    expect(body.authError).toContain('env "dev"');
+    expect((sent.body as { state: string }).state).toBe('failed');
+  });
+
+  it('returns 200 for a partial verdict - budget ran out, not a failure', async () => {
+    stubResolvableEnv();
+    passMock.mockResolvedValueOnce({ runId: 'r', state: 'partial', itemsRemaining: 3 });
+    const { res, sent } = makeResponse();
+
+    await handler(request(), res);
+
+    expect(sent.status).toBe(200);
+    expect((sent.body as { state: string }).state).toBe('partial');
+  });
+
+  it('returns 200 when the pass is ok', async () => {
+    stubResolvableEnv();
+    passMock.mockResolvedValueOnce({ runId: 'r', state: 'ok', done: 1 });
+    const { res, sent } = makeResponse();
+
+    await handler(request(), res);
+
+    expect(sent.status).toBe(200);
   });
 
   it('reduces an unexpected failure to its class name, never a host', async () => {

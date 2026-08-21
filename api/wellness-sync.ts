@@ -2,7 +2,7 @@ import { ConfigValidationError, loadConfig } from '../src/config/index.js';
 import { isAuthorizedByAny } from '../src/http/bearer.js';
 import type { HttpRequest, HttpResponse } from '../src/http/types.js';
 import { MissingSecretsError, SecretsProviderError } from '../src/secrets/types.js';
-import { runWellnessSync } from '../src/wl/sync.js';
+import { runStaffSyncPass } from '../src/sync/pass.js';
 
 /**
  * A config-resolution failure whose message is safe to return: these name the
@@ -25,18 +25,16 @@ function isConfigError(error: unknown): boolean {
  * authenticate against WellnessLiving FIRST, then run every operation on that
  * one shared token.
  *
- * WHAT IT DOES TODAY: a read-only pass that proves the authenticated chain works
- * in the deployed environment - token acquisition, business scoping, the
- * `status === "ok"` assertion, and `k_log` capture per call. It does NOT write to
- * Supabase, because the schema (PRD M02) and the queue/worker layer (M03) are not
- * built yet.
+ * WHAT IT DOES TODAY: runs one bounded staff sync pass (PRD M03) - opens a
+ * `sync_run`, drains the `sync_queue` within a time budget, writes staff to
+ * Supabase, and returns the verdict. `failed` is 503; `ok` and `partial` are both
+ * 200, because `partial` (budget ran out, work still queued) is the normal way a
+ * long run ends and resumes next invocation, not a failure to alert on.
  *
- * WHAT IT CANNOT BECOME: the executor for the full daily sync. A Vercel function
- * is capped at 60s on Hobby while the daily sync is budgeted at two hours and the
- * backfill at eight (PRD section 12). When the sync engine lands, this route
- * either triggers it elsewhere or runs one bounded slice per invocation. The
- * budget guard in runWellnessSync exists so that limit is reported rather than
- * hit as a silent timeout.
+ * A Vercel function is capped at 60s while a full sync is budgeted in hours, so a
+ * pass is DELIBERATELY one bounded slice: the queue is the durable cursor, and the
+ * cron calling this repeatedly is what drains it. The budget guard reports that
+ * limit as `partial` rather than hitting it as a silent timeout.
  *
  * AUTH: `Authorization: Bearer <token>`, matched against SYNC_TRIGGER_TOKEN or
  * CRON_SECRET. Vercel Cron sends CRON_SECRET as the bearer automatically, so
@@ -69,11 +67,13 @@ export default async function handler(req: HttpRequest, res: HttpResponse): Prom
 
   try {
     const config = await loadConfig();
-    const summary = await runWellnessSync(config);
+    const summary = await runStaffSyncPass(config);
 
-    // 200 only when every step ran and succeeded. A cron that reports success on
-    // a partial run is worse than no cron at all.
-    res.status(summary.ok ? 200 : 503).json(summary);
+    // `failed` is the only 503: the pass hit a bug it could not record as queue
+    // state. `ok` and `partial` are both 200 - `partial` means the budget ran out
+    // with work still queued, which is the normal way a long run ends and resumes
+    // on the next invocation, NOT a failure a cron should alert on.
+    res.status(summary.state === 'failed' ? 503 : 200).json(summary);
   } catch (error) {
     if (isConfigError(error)) {
       // Names the offending keys, never their values - safe for an authorized

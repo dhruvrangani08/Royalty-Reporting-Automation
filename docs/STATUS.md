@@ -9,11 +9,15 @@ than none, because it is believed.
 |---|---|---|
 | **M01** foundation | Config, secrets, auth, HTTP client, retry, logging, health | ✅ done |
 | **M02** schema | Tables for people, money, sessions, control plane, raw payloads | ✅ done |
-| **M03** sync engine | The code that reads WL and writes to those tables | ⬜ not started |
+| **M03** sync engine | The code that reads WL and writes to those tables | 🔨 in progress — staff path live |
 | **M04** GHL + royalty | Contact matching, royalty calculation | ⬜ not started |
 | **M05** portal | Student portal reading the same database | ⬜ not started |
 
-**We are at the end of M02.** The database is ready and nothing writes to it yet.
+**M03 has landed its first vertical slice.** The staff path runs end to end against
+dev — Supabase write client, `raw_wl`→`person`→`raw_link` writer, the durable
+`sync_queue` loop, and a bounded `sync_run` pass behind the cron route. Still to
+come: purchases/royalty rows (task 014), the `sync_job_state` page cursor for
+paginated jobs, and `sync_conflict` creation.
 
 ## Done
 
