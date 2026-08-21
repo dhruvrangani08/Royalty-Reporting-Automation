@@ -39,3 +39,10 @@ answers — not a green light to code.
   confirmed in 010).
 - Split into 010 (writer + raw_link) → 011 (queue loop) → 012 (resume + route).
 - Still gated on live access (007, 008) before any code.
+
+### 2026-08-21 — done (umbrella complete)
+- All sub-tasks landed: 013 (Supabase client), 010 (staff writer), 011 (queue loop),
+  012 (route/sync_run), 014 (purchases), 015 (receipt money). The M03 reduced slice
+  runs end to end against dev: staff -> person, purchases -> purchase/purchase_item,
+  receipts -> money. Deferred by design: sync_job_state page cursor, sync_conflict
+  creation, and the full client base (blocked upstream).

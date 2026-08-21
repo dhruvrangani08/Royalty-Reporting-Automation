@@ -140,12 +140,19 @@ export async function storeRawWl(db: SupabaseClient, input: StoreRawInput): Prom
   return id;
 }
 
-/** One raw_link row per typed row, tying it to the payload it was parsed from. */
+/**
+ * One raw_link row per typed row, tying it to the payload it was parsed from.
+ *
+ * `fieldGroup` records WHICH fields came from this payload: the structure writer
+ * uses 'all', the receipt writer 'money', so a row assembled from two payloads
+ * traces each part to its source.
+ */
 export async function linkRows(
   db: SupabaseClient,
   rawWlId: string,
   tableName: string,
   recordKeys: readonly string[],
+  fieldGroup = 'all',
 ): Promise<void> {
   if (recordKeys.length === 0) return;
   await db.insert(
@@ -154,7 +161,7 @@ export async function linkRows(
       raw_wl_id: rawWlId,
       table_name: tableName,
       record_key,
-      field_group: 'all',
+      field_group: fieldGroup,
     })),
   );
 }

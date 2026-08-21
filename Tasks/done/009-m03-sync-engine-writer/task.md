@@ -1,7 +1,7 @@
 ---
 id: 009
 title: M03 sync engine — the writer and the durable queue loop
-status: backlog
+status: done
 priority: high
 depends_on: []
 created: 2026-08-21

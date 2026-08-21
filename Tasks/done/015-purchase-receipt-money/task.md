@@ -1,7 +1,7 @@
 ---
 id: 015
 title: Purchase receipt enrichment — money and the payment breakdown
-status: backlog
+status: done
 priority: high
 depends_on: [014]
 created: 2026-08-21
@@ -44,13 +44,13 @@ Populate the `m_*` totals on `purchase` and `purchase_item`, and the
 
 ## Acceptance criteria
 
-- [ ] A receipt fetch updates its purchase's `m_total` (and the other m_* fields)
+- [x] A receipt fetch updates its purchase's `m_total` (and the other m_* fields)
       and each item's `m_price_total`, as `numeric(12,2)` from WL's string
-- [ ] `purchase_payment` rows written from the method breakdown; account-credit
+- [x] `purchase_payment` rows written from the method breakdown; account-credit
       handled distinctly from a payment
-- [ ] Re-running updates in place — no duplicate payment rows
-- [ ] Parser tests on a captured receipt payload + a live proof against dev
-- [ ] A task-008 row for any receipt behaviour the tests mock
+- [x] Re-running updates in place — no duplicate payment rows
+- [x] Parser tests on a captured receipt payload + a live proof against dev
+- [x] A task-008 row for any receipt behaviour the tests mock
 
 ## Constraints & notes
 

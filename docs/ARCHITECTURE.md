@@ -71,6 +71,7 @@ correctly does not start.
 | Auth reachability probe | [`src/wl/health.ts`](../src/wl/health.ts) |
 | Writing WL responses to Supabase (raw_wl → typed rows → raw_link) | [`src/sync/writer.ts`](../src/sync/writer.ts) |
 | Writing purchases (list → purchase + purchase_item, stub FKs) | [`src/sync/purchases.ts`](../src/sync/purchases.ts) |
+| Enriching purchases with money (receipt → totals, payments, credit) | [`src/sync/receipts.ts`](../src/sync/receipts.ts) |
 | The durable sync_queue loop (claim, settle, requeue, dead-letter) | [`src/sync/queue.ts`](../src/sync/queue.ts) |
 | One bounded sync pass (sync_run accounting + queue drain) | [`src/sync/pass.ts`](../src/sync/pass.ts) |
 

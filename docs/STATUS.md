@@ -17,9 +17,12 @@ than none, because it is believed.
 the purchase path (`purchase` + `purchase_item`, the royalty rows) both run end to
 end — Supabase write client, writers with `raw_link`, the durable `sync_queue` loop
 with per-work-type claiming, and bounded `sync_run` passes. A live run wrote 109
-purchases + items across the staff uids. Still to come: **money** — `m_*` totals and
-the payment breakdown from `/v1/purchase/receipt` (task 015); the `sync_job_state`
-page cursor; `sync_conflict` creation; and the full client base (blocked upstream).
+purchases + items across the staff uids. **Money now lands too** (task 015): a
+receipt pass fills `purchase` totals, `purchase_item.m_price_total`,
+`purchase_payment` and `purchase_account_credit` from `/v1/purchase/receipt` — proven
+live (totals like 840/299/280, payment + account-credit rows). Still to come: the
+`sync_job_state` page cursor; `sync_conflict` creation; and the full client base
+(blocked upstream — no client-list endpoint).
 
 ## Done
 

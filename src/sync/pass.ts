@@ -4,6 +4,7 @@ import { WlClient, WlRequestError } from '../wl/client.js';
 import { WL_PATHS } from '../wl/endpoint.js';
 import { writePurchaseList } from './purchases.js';
 import { enqueue, outcomeFromWlError, type QueueHandler, runQueue } from './queue.js';
+import { writeReceipt } from './receipts.js';
 import { writeStaffList } from './writer.js';
 
 /**
@@ -142,6 +143,51 @@ export function runPurchaseSyncPass(
             response,
             runId,
           });
+          return { kind: 'done' };
+        } catch (error) {
+          if (error instanceof WlRequestError) return outcomeFromWlError(error);
+          throw error;
+        }
+      },
+  });
+}
+
+/**
+ * Runs the receipt sync: one job PER purchase still missing its total, each
+ * fetching /v1/purchase/receipt to fill money and the payment breakdown (task 015).
+ * Seeded from purchases with a null m_total, so a re-run enriches only the unpriced.
+ */
+export function runReceiptSyncPass(
+  config: AppConfig,
+  deps: SyncPassDeps = {},
+): Promise<SyncPassSummary> {
+  return runPass(config, deps, {
+    jobName: 'receipt_sync',
+    workType: 'purchase_receipt',
+    seed: async ({ db, kBusiness, nowIso }) => {
+      const unpriced = await db.select<{ k_purchase: string }>(
+        'purchase',
+        `k_business=eq.${kBusiness}&m_total=is.null&select=k_purchase`,
+      );
+      await enqueue(
+        db,
+        unpriced.map((p) => ({
+          work_type: 'purchase_receipt',
+          target_key: p.k_purchase,
+          k_business: kBusiness,
+        })),
+        nowIso(),
+      );
+    },
+    makeHandler:
+      ({ wl, db, kBusiness, runId }) =>
+      async (item) => {
+        try {
+          const response = await wl.request(WL_PATHS.purchaseReceipt, {
+            query: { k_purchase: item.target_key },
+            priorAttempt: item.attempt_count,
+          });
+          await writeReceipt(db, { kBusiness, kPurchase: item.target_key, response, runId });
           return { kind: 'done' };
         } catch (error) {
           if (error instanceof WlRequestError) return outcomeFromWlError(error);

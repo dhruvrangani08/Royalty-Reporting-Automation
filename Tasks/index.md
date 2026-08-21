@@ -5,9 +5,7 @@ Sorted by status (done last), then priority, then ID.
 
 | ID  | Title | Status | Priority | Depends on | Path |
 |-----|-------|--------|----------|------------|------|
-| 009 | M03 sync engine — the writer and the durable queue loop (umbrella PRD, green-lit) | backlog | high | — | `backlog/009-m03-sync-engine-writer/` |
 | 007 | Apply the health-views/RLS migration to the live DB and run its isolation proof | backlog | high | — | `backlog/007-apply-and-prove-health-views-rls/` |
-| 015 | Purchase receipt enrichment — money and the payment breakdown | backlog | high | 014 | `backlog/015-purchase-receipt-money/` |
 | 008 | Live-verification checklist for behaviour only mocks can prove today | backlog | high | — | `backlog/008-live-verification-checklist/` |
 | 001 | Bound the in-process retry ladder by attempts, not by delay source | done | critical | — | `done/001-bound-retry-ladder-attempts/` |
 | 004 | Give a request a total deadline derived from the pass budget | done | medium | 001 | `done/004-request-deadline-from-budget/` |
@@ -20,3 +18,5 @@ Sorted by status (done last), then priority, then ID.
 | 011 | M03b — the durable sync_queue claim, requeue and dead-letter loop | done | high | 010 | `done/011-m03b-queue-loop/` |
 | 012 | M03c — resume cursor, sync_run accounting, and route wiring | done | high | 011 | `done/012-m03c-resume-and-route/` |
 | 014 | M03a-purchases — purchase + purchase_item writer (money null) | done | high | 010 | `done/014-m03a-purchases-writer/` |
+| 015 | Purchase receipt enrichment — money and the payment breakdown | done | high | 014 | `done/015-purchase-receipt-money/` |
+| 009 | M03 sync engine — writer + durable queue (umbrella) | done | high | — | `done/009-m03-sync-engine-writer/` |

@@ -150,6 +150,21 @@ teacher cost and no margin.
 It returns `date-incorrect` for `dt_date` in every format tried, including the
 `YYYY-MM-DD HH:MM:SS` form that other endpoints require.
 
+### `/v1/purchase/receipt` shape — where the money is
+
+Probed live 21 Aug 2026. `profile/purchase/list` carries NO money; the receipt does,
+one call per `k_purchase`:
+
+| Block | Holds | Maps to |
+|---|---|---|
+| `a_price` (keyed object) | `m_sum`, `m_discount`, `m_tax`, `m_tip`, `m_total`, `text_currency` | `purchase` totals |
+| `a_purchase_item[]` | per item `m_price_total`, `text_currency` | `purchase_item` money |
+| `a_pay_method[]` | `text_pay_method`, `m_amount`, `text_currency` | `purchase_payment` |
+| `a_account_rest[]` | `text_method`, `m_amount` (can be **negative** — a balance, not a payment), `text_currency` | `purchase_account_credit` |
+
+Trap: **`a_purchase_item[].k_purchase_item` comes back as a NUMBER here**, though the
+list endpoint sends the same key as a string. Coerce to text or the item is lost.
+
 ### Field notes worth remembering
 
 | Field | Note |

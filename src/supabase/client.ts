@@ -104,6 +104,16 @@ export class SupabaseClient {
   }
 
   /**
+   * Deletes rows matching `query`. Used for the delete-then-insert idempotency of
+   * tables with no natural key (a purchase's payment rows), so re-running a
+   * receipt does not pile up duplicate payments.
+   */
+  async delete(table: string, query: string): Promise<void> {
+    const response = await this.send(table, `${this.base(table)}?${query}`, { method: 'DELETE' });
+    await this.parse(table, response); // surfaces a typed error on non-2xx
+  }
+
+  /**
    * Selects rows with a raw PostgREST query string, e.g. `"uid=eq.123&limit=1"`.
    * Kept deliberately thin - the caller writes the filter it needs.
    */
