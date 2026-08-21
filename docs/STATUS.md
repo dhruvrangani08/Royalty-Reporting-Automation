@@ -66,13 +66,16 @@ why it is shaped that way.
 | Session / attendance | ✅ |
 | Sync tracking tables | ✅ |
 | Raw payload tables | ✅ |
-| Health views and RLS | ⚠️ written, not applied or committed |
+| Health views and RLS | ✅ applied + proven on the live DB (21 Aug 2026) |
 
 ## In progress
 
-`supabase/migrations/0010_health_views_and_rls.sql` and `supabase/checks/` are
-written and uncommitted. They add `data_health`, `data_health_issue`,
-`customer_journey`, `enrollment_margin`, five RLS policies, and an isolation proof.
+Nothing. `0010_health_views_and_rls.sql` is applied to the live database and its
+isolation proof passed (task 007): the five SELECT policies exist, all six views
+(`client`, `teacher`, `data_health`, `data_health_issue`, `customer_journey`,
+`enrollment_margin`) run with `security_invoker = on`, and the isolation test
+confirmed a user reads only their own rows while anon reads none — run cleanly in
+the Supabase SQL editor with no error and no test data left behind.
 
 ## Not started
 

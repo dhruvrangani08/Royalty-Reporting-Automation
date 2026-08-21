@@ -5,12 +5,12 @@ Sorted by status (done last), then priority, then ID.
 
 | ID  | Title | Status | Priority | Depends on | Path |
 |-----|-------|--------|----------|------------|------|
-| 007 | Apply the health-views/RLS migration to the live DB and run its isolation proof | backlog | high | — | `backlog/007-apply-and-prove-health-views-rls/` |
 | 008 | Live-verification checklist for behaviour only mocks can prove today | backlog | high | — | `backlog/008-live-verification-checklist/` |
 | 001 | Bound the in-process retry ladder by attempts, not by delay source | done | critical | — | `done/001-bound-retry-ladder-attempts/` |
 | 004 | Give a request a total deadline derived from the pass budget | done | medium | 001 | `done/004-request-deadline-from-budget/` |
 | 002 | Classify body-read failures as transient | done | high | — | `done/002-classify-body-read-failures/` |
 | 003 | Handle WlAuthError inside the request retry loop | done | high | — | `done/003-handle-auth-error-in-request-loop/` |
+| 007 | Apply the health-views/RLS migration to the live DB and run its isolation proof | done | high | — | `done/007-apply-and-prove-health-views-rls/` |
 | 005 | Stop the sync route echoing raw error messages, and keep step errors | done | medium | — | `done/005-redact-route-error-messages/` |
 | 006 | Settle and document what the retry ladders actually promise | done | medium | — | `done/006-settle-retry-ladder-promises/` |
 | 013 | Supabase write client — PostgREST upsert/insert over fetch | done | high | — | `done/013-supabase-write-client/` |

@@ -35,3 +35,13 @@ Supabase CLI. Needs SQL-editor access or a connection string to proceed.
   installed locally, so the migration + both checks can run from here; OR (b) run
   0010 and supabase/checks/{rls_bypass_check,rls_isolation_test}.sql in the Supabase
   SQL editor and paste the notices back.
+
+### 2026-08-21 — done (applied + proven live)
+- 0010 applied via the Supabase SQL editor (no DB password available for psql).
+- Bypass check: 5 SELECT policies (person/purchase/purchase_item/attendance/session,
+  all scoped to authenticated); all 6 views security_invoker = on.
+- Isolation test PASSED after a harness fix: the temp table used `on commit drop`,
+  which the SQL editor dropped between statements (ERROR 42P01). Inlined the two test
+  people as VALUES; re-run completed with no error and the "test data gone" select
+  returned 0 rows.
+- STATUS updated: Health views and RLS = applied + proven.

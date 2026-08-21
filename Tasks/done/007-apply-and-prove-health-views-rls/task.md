@@ -1,7 +1,7 @@
 ---
 id: 007
 title: Apply the health-views/RLS migration to the live DB and run its isolation proof
-status: backlog
+status: done
 priority: high
 depends_on: []
 created: 2026-08-21
@@ -37,14 +37,14 @@ gap: apply once, prove enforcement, and correct the stale docs.
 
 ## Acceptance criteria
 
-- [ ] 0010 is applied to the live DB (all four views exist, five SELECT policies
+- [x] 0010 is applied to the live DB (all four views exist, five SELECT policies
       present, `security_invoker = on` on all views)
-- [ ] `rls_isolation_test.sql` prints four `PASS` notices and `ALL PASSED`; the
+- [x] `rls_isolation_test.sql` prints four `PASS` notices and `ALL PASSED`; the
       trailing "test data gone" select returns zero rows
-- [ ] `rls_bypass_check.sql` shows the five policies and every view with
+- [x] `rls_bypass_check.sql` shows the five policies and every view with
       `security_invoker` on (not `OFF - BYPASSES RLS`)
-- [ ] `docs/STATUS.md` shows Health views and RLS as applied, dated
-- [ ] `Tasks/index.md` lists the real tasks
+- [x] `docs/STATUS.md` shows Health views and RLS as applied, dated
+- [x] `Tasks/index.md` lists the real tasks
 
 ## Constraints & notes
 

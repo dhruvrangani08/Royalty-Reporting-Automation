@@ -20,14 +20,14 @@
 
 begin;
 
--- Two people, two owners.
-create temp table _t (label text, uid text, auth_id uuid) on commit drop;
-insert into _t values
-  ('alice', '__rls_test_alice', '11111111-1111-1111-1111-111111111111'),
-  ('bob',   '__rls_test_bob',   '22222222-2222-2222-2222-222222222222');
-
+-- Two people, two owners. Inlined as VALUES rather than staged in a temp table:
+-- the Supabase SQL editor commits between statements, so an `on commit drop` temp
+-- table was gone before the next statement could read it (ERROR 42P01). No temp
+-- table means no such dependency.
 insert into public.person (uid, k_business, auth_user_id, first_name, ghl_match_state)
-select uid, '__rls_test_biz', auth_id, label, 'unmatched' from _t;
+values
+  ('__rls_test_alice', '__rls_test_biz', '11111111-1111-1111-1111-111111111111', 'alice', 'unmatched'),
+  ('__rls_test_bob',   '__rls_test_biz', '22222222-2222-2222-2222-222222222222', 'bob',   'unmatched');
 
 -- One purchase each, so the joined policies are exercised too and not just the
 -- simple one on person.
