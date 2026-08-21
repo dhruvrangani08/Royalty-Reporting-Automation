@@ -1,7 +1,13 @@
 import type { WlConfig } from '../config/schema.js';
 import type { AppEnv } from '../secrets/types.js';
 import { buildWlUrl, type QueryValue } from './endpoint.js';
-import { parseRetryAfter, retryDelayMs, throttleBackoffMs } from './retry.js';
+import {
+  MAX_IN_PROCESS_RETRY_AFTER_MS,
+  parseRetryAfter,
+  retryDelayMs,
+  throttleBackoffMs,
+  THROTTLE_BACKOFF_MS,
+} from './retry.js';
 import { createTraceIds, readKLog, type TraceIdSource } from './trace.js';
 import { WlAuthError, WlTokenClient, type WlTokenClientDeps } from './token.js';
 
@@ -105,6 +111,24 @@ export interface WlRequestOptions {
   readonly method?: 'GET' | 'POST';
   /** Sent as a JSON body. Omit for GET. */
   readonly json?: unknown;
+  /**
+   * Absolute time (ms, on the client's own `now` clock) past which no NEW
+   * attempt should be started. Derived from the pass budget by the caller so a
+   * single slow-and-throttled item cannot retry past the window the platform
+   * allows. Omit for an unbounded single call - health checks and tests. A call
+   * already in flight is never abandoned; this only gates starting more work.
+   */
+  readonly deadline?: number;
+  /**
+   * How many times the queue layer (PRD M03) has ALREADY requeued this item,
+   * 0-based. It selects the requeue rung on the 1 / 5 / 25 minute ladder for the
+   * NEXT hand-back, so a repeatedly-failing item widens its spacing instead of
+   * retrying every minute forever. When the ladder is spent (>= its length) the
+   * item is dead-lettered - requeueAfterMs comes back null. Defaults to 0 (the
+   * sync pass is always the first attempt); the worker passes the running count.
+   * A WL `Retry-After` still outranks the ladder when WL sent one.
+   */
+  readonly priorAttempt?: number;
 }
 
 export interface WlClientDeps extends WlTokenClientDeps {
@@ -188,6 +212,8 @@ export class WlClient {
     let authRetried = false;
     let throttleAttempt = 0;
     let attempts = 0;
+    const deadline = options.deadline;
+    const priorAttempt = options.priorAttempt ?? 0;
     // ONE id for the logical call, not one per attempt: retries are the same
     // operation, and `attempts` already records how many there were.
     const traceId = this.traces.next();
@@ -197,6 +223,26 @@ export class WlClient {
       try {
         return await this.attempt<T>(path, options, traceId);
       } catch (error) {
+        // A token could not be (re)fetched. WlAuthError is NOT a WlRequestError,
+        // so without this it escapes unclassified and a step reports it as
+        // "failed for an unknown reason" - discarding the one message that names
+        // the environment and the credential to check. This is the normal path
+        // after a mid-run 401: invalidate, refetch, and the refetch itself is
+        // rejected because the credentials rotated under the run.
+        if (error instanceof WlAuthError) {
+          const backoff = throttleBackoffMs(throttleAttempt, this.random);
+          if (
+            error.kind === 'transient' &&
+            backoff !== null &&
+            this.canStartAfter(backoff, deadline)
+          ) {
+            throttleAttempt += 1;
+            await this.sleep(backoff);
+            continue;
+          }
+          throw this.authAsRequestError(error, path, traceId, attempts);
+        }
+
         if (!(error instanceof WlRequestError)) throw error;
 
         // The token died early. One fresh token is worth exactly one more
@@ -213,19 +259,39 @@ export class WlClient {
           throw this.withRetryGuidance(error, attempts, null);
         }
 
-        // TRANSIENT: back off and try again inside this pass, preferring WL's
-        // own Retry-After over our ladder when it sent one.
-        const backoff =
-          error.details.retryAfterMs ?? throttleBackoffMs(throttleAttempt, this.random);
-        if (backoff !== null) {
+        // TRANSIENT. Two delays can apply, and WL's own Retry-After outranks our
+        // ladder when it sent one.
+        const retryAfterMs = error.details.retryAfterMs;
+        if (retryAfterMs !== null) {
+          // Sleep it in-process only if it is short enough to fit a step AND the
+          // next attempt would still start inside the budget. A longer wait is
+          // requeued with EXACTLY that delay - honouring the server without
+          // sleeping minutes inside a function the platform caps at 60s.
+          if (
+            retryAfterMs <= MAX_IN_PROCESS_RETRY_AFTER_MS &&
+            throttleAttempt < THROTTLE_BACKOFF_MS.length &&
+            this.canStartAfter(retryAfterMs, deadline)
+          ) {
+            throttleAttempt += 1;
+            await this.sleep(retryAfterMs);
+            continue;
+          }
+          throw this.withRetryGuidance(error, attempts, retryAfterMs);
+        }
+
+        // No Retry-After: our own in-process ladder, bounded by its length so a
+        // persistent throttle cannot loop forever. When it is spent, or no time
+        // is left, requeue on the rung the item's prior-attempt count selects -
+        // a repeatedly-failing item widens its spacing rather than retrying every
+        // minute. Null there means the ladder is exhausted: dead-letter.
+        const backoff = throttleBackoffMs(throttleAttempt, this.random);
+        if (backoff !== null && this.canStartAfter(backoff, deadline)) {
           throttleAttempt += 1;
           await this.sleep(backoff);
           continue;
         }
 
-        // In-process ladder exhausted. Hand the item back for requeue on the
-        // 1 / 5 / 25 minute schedule rather than blocking the run any longer.
-        throw this.withRetryGuidance(error, attempts, retryDelayMs(0, this.random));
+        throw this.withRetryGuidance(error, attempts, retryDelayMs(priorAttempt, this.random));
       }
     }
   }
@@ -236,6 +302,17 @@ export class WlClient {
    * Rebuilt rather than mutated because `details` is readonly, and a dead-letter
    * record that was quietly edited after the fact is worse than no record.
    */
+  /**
+   * Whether the next attempt would begin before the pass deadline.
+   *
+   * The deadline gates STARTING work, never a call already in flight - the same
+   * rule batch.ts applies to items. No deadline means unbounded, which is the
+   * right default for a health check or a one-off call.
+   */
+  private canStartAfter(backoffMs: number, deadline: number | undefined): boolean {
+    return deadline === undefined || this.now() + backoffMs < deadline;
+  }
+
   private withRetryGuidance(
     error: WlRequestError,
     attempts: number,
@@ -246,6 +323,41 @@ export class WlClient {
       error.message,
       { ...error.details, attempts, requeueAfterMs },
       error.cause === undefined ? undefined : { cause: error.cause },
+    );
+  }
+
+  /**
+   * Restates a token failure as a request failure, so a step reports the
+   * credential message and this call's trace id instead of "unknown reason".
+   *
+   * WlAuthError already names the environment and the key to check, and that
+   * text is host-safe by construction (see token.ts) - it is preserved verbatim,
+   * because that message is the whole value of surfacing this rather than
+   * swallowing it. A transient token failure that got here has spent the ladder,
+   * so it is requeued; an auth/permanent one carries null and dead-letters.
+   */
+  private authAsRequestError(
+    error: WlAuthError,
+    path: string,
+    traceId: string,
+    attempts: number,
+  ): WlRequestError {
+    return new WlRequestError(
+      error.kind,
+      error.message,
+      {
+        path,
+        traceId,
+        sid: null,
+        sField: null,
+        kLog: null,
+        httpStatus: error.httpStatus ?? null,
+        retryAfterMs: null,
+        attempts,
+        requeueAfterMs: error.kind === 'transient' ? retryDelayMs(0, this.random) : null,
+        latencyMs: 0,
+      },
+      { cause: error },
     );
   }
 
@@ -296,10 +408,38 @@ export class WlClient {
       );
     }
 
-    const latencyMs = this.now() - startedAt;
     // WL's own instruction, when it sends one. Outranks any ladder we invented.
+    // Read from headers, which cannot throw, before the body read that can.
     const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'), this.now());
-    const raw = await response.text();
+
+    // The body read is a second point the connection can fail - a reset or an
+    // abort mid-stream throws HERE, after a clean connect. Left unguarded it
+    // escapes as a raw Error with no kind, no trace id and no latency, and a
+    // step reports it as "unknown reason": the one transient failure that gets
+    // no classification. Guarded, it joins the ladder like any other.
+    let raw: string;
+    try {
+      raw = await response.text();
+    } catch (cause) {
+      throw new WlRequestError(
+        'transient',
+        `${method} ${path} body was not received${describeEnv(this.env)}: ${describeFetchFailure(cause, this.timeoutMs)}`,
+        {
+          path,
+          traceId,
+          sid: null,
+          sField: null,
+          kLog: null,
+          httpStatus: response.status,
+          retryAfterMs,
+          attempts: 1,
+          requeueAfterMs: null,
+          latencyMs: this.now() - startedAt,
+        },
+        { cause },
+      );
+    }
+    const latencyMs = this.now() - startedAt;
     const body = parseJson(raw);
     const kLog = readKLog(body);
 

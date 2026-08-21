@@ -338,3 +338,90 @@ describe('WlClient - never leaks', () => {
     expect(error.details.path).toBe('/v1/user');
   });
 });
+
+describe('WlClient - a body-read failure is transient, not "unknown"', () => {
+  it('classifies a reset mid-body with a real trace id and latency, host-safe', async () => {
+    const wl = await wlConfig();
+    // A clean connect, then the body stream dies - the second failure point
+    // that used to escape the taxonomy entirely.
+    const fetchMock = vi.fn<typeof globalThis.fetch>().mockImplementation((input) => {
+      if (calledUrl(input).includes('/oauth2/token')) return Promise.resolve(tokenResponse());
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        text: () => Promise.reject(new Error(`socket hang up: ${wl.host}`)),
+      } as unknown as Response);
+    });
+    const client = new WlClient(wl, { fetch: fetchMock, now: clock(), sleep: noSleep, env: 'dev' });
+
+    const error = (await client.request('/v1/business').catch((e: unknown) => e)) as WlRequestError;
+
+    expect(error).toBeInstanceOf(WlRequestError);
+    expect(error.kind).toBe('transient');
+    // Was 'unknown' and 0 before the fix.
+    expect(error.details.traceId).not.toBe('unknown');
+    expect(error.details.traceId).toContain('.');
+    expect(error.details.latencyMs).toBeGreaterThan(0);
+    // The cause carried the host; the surfaced message must not.
+    expect(error.message).not.toContain(wl.host);
+  });
+});
+
+describe('WlClient - a mid-pass token failure keeps its message', () => {
+  it('surfaces the credential error, not "unknown reason", when a refetch is rejected', async () => {
+    const wl = await wlConfig();
+    let tokenCalls = 0;
+    const fetchMock = vi.fn<typeof globalThis.fetch>().mockImplementation((input) => {
+      if (calledUrl(input).includes('/oauth2/token')) {
+        tokenCalls += 1;
+        if (tokenCalls === 1) return Promise.resolve(tokenResponse());
+        // The credentials rotated under the run: the refetch is rejected.
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: 'invalid_client' }), { status: 401 }),
+        );
+      }
+      // The data call rejects the now-stale token, forcing the refetch above.
+      return Promise.resolve(
+        new Response(JSON.stringify({ status: 'not-authenticated' }), { status: 401 }),
+      );
+    });
+    const client = new WlClient(wl, { fetch: fetchMock, now: clock(), sleep: noSleep, env: 'dev' });
+    await client.ensureAuthenticated();
+
+    const error = (await client.request('/v1/business').catch((e: unknown) => e)) as WlRequestError;
+
+    expect(error).toBeInstanceOf(WlRequestError);
+    expect(error.kind).toBe('auth');
+    expect(error.message).toContain('credentials rejected');
+    expect(error.details.traceId).not.toBe('unknown');
+    // An auth failure gives the queue nothing to retry.
+    expect(error.details.requeueAfterMs).toBeNull();
+  });
+
+  it('retries a transient token failure and can still succeed', async () => {
+    const wl = await wlConfig();
+    let tokenCalls = 0;
+    let dataCalls = 0;
+    const fetchMock = vi.fn<typeof globalThis.fetch>().mockImplementation((input) => {
+      if (calledUrl(input).includes('/oauth2/token')) {
+        tokenCalls += 1;
+        // First token ok; the mid-pass refetch blips (503) once, then recovers.
+        if (tokenCalls === 2) return Promise.resolve(new Response('{}', { status: 503 }));
+        return Promise.resolve(tokenResponse(`tok-${String(tokenCalls)}`));
+      }
+      dataCalls += 1;
+      if (dataCalls === 1)
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: 'not-authenticated' }), { status: 401 }),
+        );
+      return Promise.resolve(ok());
+    });
+    const client = new WlClient(wl, { fetch: fetchMock, now: clock(), sleep: noSleep, env: 'dev' });
+    await client.ensureAuthenticated();
+
+    const result = await client.request('/v1/business');
+
+    expect(result.httpStatus).toBe(200);
+  });
+});

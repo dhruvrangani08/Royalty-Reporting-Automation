@@ -127,7 +127,11 @@ export async function runWellnessSync(
   // Batched rather than a sequential loop: the steps are independent, so one
   // slow endpoint should not hold up the others. runBatch also owns the budget
   // check, and reports what it never started instead of truncating silently.
-  const batch = await runBatch(STEPS, (step) => runStep(client, step), {
+  // The same budget the batch uses to gate STARTING items, expressed as an
+  // absolute deadline so one already-started item cannot retry past it either.
+  // No new number: startedAt + budgetMs is the window the batch already honours.
+  const deadline = startedAt + budgetMs;
+  const batch = await runBatch(STEPS, (step) => runStep(client, step, deadline), {
     // Bounds how many items are in flight, NOT a request rate: WL publishes no
     // rate limit and this service no longer invents one.
     concurrency: deps.concurrency ?? config.runtime.maxConcurrency,
@@ -140,7 +144,7 @@ export async function runWellnessSync(
   // failure here is a bug rather than an API problem. Recorded, not swallowed.
   const steps: WellnessSyncStep[] = [
     ...batch.results,
-    ...batch.failures.map((f) => unexpectedStepFailure(f.item)),
+    ...batch.failures.map((f) => unexpectedStepFailure(f.item, f.error)),
   ];
   const skipped = batch.remaining.map((step) => step.name);
 
@@ -155,13 +159,21 @@ export async function runWellnessSync(
   };
 }
 
-/** A step that threw where it should have returned. Should never happen. */
-function unexpectedStepFailure(step: { name: string; path: string }): WellnessSyncStep {
+/**
+ * A step that threw where it should have returned. Should never happen -
+ * runStep turns a WlRequestError into a failed step rather than throwing - so
+ * reaching here is a bug, and the error is the only clue to it. The class name
+ * is recorded (host-safe, unlike the message) rather than discarded.
+ */
+function unexpectedStepFailure(
+  step: { name: string; path: string },
+  error: unknown,
+): WellnessSyncStep {
   return {
     name: step.name,
     path: step.path,
     ok: false,
-    detail: 'failed for an unknown reason',
+    detail: `failed unexpectedly: ${error instanceof Error ? error.name : 'unknown error'}`,
     traceId: 'unknown',
     kLog: null,
     latencyMs: 0,
@@ -171,9 +183,10 @@ function unexpectedStepFailure(step: { name: string; path: string }): WellnessSy
 async function runStep(
   client: WlClient,
   step: { name: string; path: string },
+  deadline: number,
 ): Promise<WellnessSyncStep> {
   try {
-    const response = await client.request<Record<string, unknown>>(step.path);
+    const response = await client.request<Record<string, unknown>>(step.path, { deadline });
     return {
       name: step.name,
       path: step.path,

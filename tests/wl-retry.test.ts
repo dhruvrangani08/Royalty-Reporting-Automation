@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../src/config/index.js';
 import type { AppConfig, WlConfig } from '../src/config/schema.js';
 import { WlClient, type WlRequestError } from '../src/wl/client.js';
-import { RETRY_SCHEDULE_MS, retryDelayMs, throttleBackoffMs } from '../src/wl/retry.js';
+import {
+  RETRY_SCHEDULE_MS,
+  retryDelayMs,
+  throttleBackoffMs,
+  THROTTLE_BACKOFF_MS,
+} from '../src/wl/retry.js';
 import { runWellnessSync } from '../src/wl/sync.js';
 import { FakeProvider } from './helpers/fixtures.js';
 
@@ -173,6 +178,121 @@ describe('a throttle backs off, widens and requeues', () => {
     // Not dropped: the queue layer is told when to try again.
     expect(error.details.requeueAfterMs).toBe(60_000);
     expect(error.details.attempts).toBe(4);
+  });
+
+  it('terminates when WL sends Retry-After on every call, bounded by the ladder', async () => {
+    // The bug this guards: Retry-After short-circuits the ladder's null return,
+    // so a server that keeps sending it loops forever. On a capped function that
+    // is a silent timeout with no summary and no requeue record. Measured 51
+    // calls before this fix; the ladder length is the only thing that ends it.
+    const wl = await wlConfig();
+    const time = fakeTime();
+    const { fetchMock, counts } = routed(() =>
+      // Bailout so the unbounded-loop regression fails as an assertion, not an
+      // out-of-memory crash: without the ladder bound this keeps consuming the
+      // persistent Retry-After forever. Past the cap it returns success, so the
+      // mutated loop ends with an inflated call count instead of hanging.
+      counts.data > 10 ? ok() : throttled({ 'retry-after': '3' }),
+    );
+    const client = new WlClient(wl, {
+      fetch: fetchMock,
+      now: time.now,
+      sleep: time.sleep,
+      random: () => 0,
+    });
+
+    const error = (await client.request('/v1/business').catch((e: unknown) => e)) as WlRequestError;
+
+    // Same bound as the no-Retry-After case above: ladder length + 1.
+    expect(counts.data).toBe(THROTTLE_BACKOFF_MS.length + 1);
+    // WL's delay was honoured while attempts remained, not our ladder.
+    expect(time.slept).toEqual([3_000, 3_000, 3_000]);
+    // And it is handed back with WL's own delay, not our ladder rung.
+    expect(error.details.requeueAfterMs).toBe(3_000);
+  });
+
+  it('requeues a long Retry-After with WL delay instead of sleeping it in-process', async () => {
+    const wl = await wlConfig();
+    const time = fakeTime();
+    // 5 minutes: too long to sleep inside a 60s function, so hand it straight
+    // back with that exact delay rather than burning our ladder at ~1s.
+    const { fetchMock, counts } = routed(() => throttled({ 'retry-after': '300' }));
+    const client = new WlClient(wl, { fetch: fetchMock, now: time.now, sleep: time.sleep });
+
+    const error = (await client.request('/v1/business').catch((e: unknown) => e)) as WlRequestError;
+
+    expect(counts.data).toBe(1); // no in-process retry at all
+    expect(time.slept).toEqual([]);
+    expect(error.details.requeueAfterMs).toBe(300_000); // WL's delay, honoured
+  });
+
+  it('selects the requeue rung from the prior-attempt count', async () => {
+    const wl = await wlConfig();
+    const time = fakeTime();
+    const { fetchMock } = routed(throttled); // no Retry-After: our own ladder
+    const client = new WlClient(wl, {
+      fetch: fetchMock,
+      now: time.now,
+      sleep: time.sleep,
+      random: () => 0,
+    });
+
+    // An item the queue has already requeued twice lands on rung 2 (25 min), not
+    // rung 0 (1 min) - the widening the M03 worker relies on.
+    const error = (await client
+      .request('/v1/business', { priorAttempt: 2 })
+      .catch((e: unknown) => e)) as WlRequestError;
+    expect(error.details.requeueAfterMs).toBe(1_500_000);
+
+    // And once the ladder is spent it dead-letters: nothing left to requeue.
+    const dead = (await client
+      .request('/v1/business', { priorAttempt: 3 })
+      .catch((e: unknown) => e)) as WlRequestError;
+    expect(dead.details.requeueAfterMs).toBeNull();
+  });
+});
+
+describe('a deadline stops retries before the pass budget is blown', () => {
+  it('requeues instead of sleeping past the deadline', async () => {
+    const wl = await wlConfig();
+    const time = fakeTime();
+    const { fetchMock, counts } = routed(throttled);
+    const client = new WlClient(wl, {
+      fetch: fetchMock,
+      now: time.now,
+      sleep: time.sleep,
+      random: () => 0, // pin the jitter so the ladder is 1s, 5s, 25s exactly
+    });
+
+    // now advances only on sleep. First backoff is 1s (0 + 1000 < 1500, allowed);
+    // that lands now at 1000, and the next backoff is 5s (1000 + 5000 = 6000,
+    // past the 1500 deadline) - so the second retry must not be started.
+    const error = (await client
+      .request('/v1/business', { deadline: 1500 })
+      .catch((e: unknown) => e)) as WlRequestError;
+
+    expect(counts.data).toBe(2); // initial + one retry, not the full ladder
+    expect(time.slept).toEqual([1_000]);
+    // Not dropped: the queue is still told when to try again.
+    expect(error.details.requeueAfterMs).toBe(60_000);
+  });
+
+  it('is unbounded when no deadline is given, so a plain call is unchanged', async () => {
+    const wl = await wlConfig();
+    const time = fakeTime();
+    const { fetchMock, counts } = routed(throttled);
+    const client = new WlClient(wl, {
+      fetch: fetchMock,
+      now: time.now,
+      sleep: time.sleep,
+      random: () => 0,
+    });
+
+    await client.request('/v1/business').catch(() => undefined);
+
+    // The full ladder ran: no deadline means no early stop.
+    expect(counts.data).toBe(4);
+    expect(time.slept).toEqual([1_000, 5_000, 25_000]);
   });
 });
 

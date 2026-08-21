@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import handler from '../api/wellness-sync.js';
+import type * as ConfigModule from '../src/config/index.js';
 import type { HttpRequest, HttpResponse } from '../src/http/types.js';
+
+// loadConfig is wrapped so one test can force a NON-config throw through the
+// handler's catch. It delegates to the real implementation by default, so every
+// other test still resolves config for real.
+const { loadConfigMock } = vi.hoisted(() => ({ loadConfigMock: vi.fn() }));
+vi.mock('../src/config/index.js', async () => {
+  const actual = await vi.importActual<typeof ConfigModule>('../src/config/index.js');
+  loadConfigMock.mockImplementation(actual.loadConfig);
+  return { ...actual, loadConfig: loadConfigMock };
+});
 
 const TOKEN = 'sync-trigger-token-0000';
 
@@ -151,5 +162,39 @@ describe('/api/wellness-sync - the verdict', () => {
     const body = sent.body as { ok: boolean; authError?: string };
     expect(body.ok).toBe(false);
     expect(body.authError).toContain('env "dev"');
+  });
+
+  it('reduces an unexpected failure to its class name, never a host', async () => {
+    vi.stubEnv('SYNC_TRIGGER_TOKEN', TOKEN);
+    // An error whose message embeds a host, as an undici connect error would.
+    // It is not a config error, so its message must not reach the response.
+    const host = 'wl-secret-host.internal.test';
+    loadConfigMock.mockRejectedValueOnce(
+      Object.assign(new Error(`connect ECONNREFUSED ${host}`), { name: 'FetchError' }),
+    );
+    const { res, sent } = makeResponse();
+
+    await handler(request(), res);
+
+    expect(sent.status).toBe(500);
+    const body = sent.body as { ok: boolean; error: string; detail: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe('sync failed unexpectedly');
+    expect(body.detail).toBe('FetchError');
+    // The whole payload, not just detail: the host must appear nowhere.
+    expect(JSON.stringify(sent.body)).not.toContain(host);
+  });
+
+  it('still returns a config error message verbatim, since it names keys not values', async () => {
+    vi.stubEnv('SYNC_TRIGGER_TOKEN', TOKEN);
+    vi.stubEnv('APP_ENV', 'nonsense');
+    const { res, sent } = makeResponse();
+
+    await handler(request(), res);
+
+    expect(sent.status).toBe(500);
+    const body = sent.body as { error: string; detail: string };
+    expect(body.error).toBe('configuration could not be resolved');
+    expect(body.detail).toContain('APP_ENV');
   });
 });

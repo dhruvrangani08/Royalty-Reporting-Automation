@@ -31,6 +31,14 @@ export const RETRY_SCHEDULE_MS: readonly number[] = [60_000, 300_000, 1_500_000]
 /** In-process throttle backoff: 1s, 5s, 25s. Sums to 31s, inside the step budget. */
 export const THROTTLE_BACKOFF_MS: readonly number[] = [1_000, 5_000, 25_000];
 
+/**
+ * Longest WL `Retry-After` we honour by sleeping IN-PROCESS. A longer one is
+ * requeued with that exact delay instead: sleeping minutes inside a 60s function
+ * is how a reportable requeue becomes a silent timeout. Matches the ladder's own
+ * ceiling - we wait in-process at most as long as our own backoff ever would.
+ */
+export const MAX_IN_PROCESS_RETRY_AFTER_MS = 25_000;
+
 /** How much jitter is added, as a fraction of the base delay. */
 export const JITTER_FRACTION = 0.2;
 
@@ -72,9 +80,16 @@ export function throttleBackoffMs(
  *
  * `Retry-After` is either seconds or an HTTP date. A server that says how long to
  * wait outranks any ladder we invented, so this is preferred when present and
- * sane. Absurd values are ignored rather than trusted into a stalled run.
+ * sane. The caller decides whether to sleep it in-process or requeue with it (see
+ * MAX_IN_PROCESS_RETRY_AFTER_MS); this only rejects the absurd. The ceiling is one
+ * hour: a real throttle asks for seconds or minutes, so anything longer is a bad
+ * header, not an instruction to stall a run for a day.
  */
-export function parseRetryAfter(header: string | null, now: number, maxMs = 60_000): number | null {
+export function parseRetryAfter(
+  header: string | null,
+  now: number,
+  maxMs = 3_600_000,
+): number | null {
   if (header === null) return null;
   const trimmed = header.trim();
   if (trimmed.length === 0) return null;

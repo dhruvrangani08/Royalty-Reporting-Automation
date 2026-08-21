@@ -1,6 +1,6 @@
 # Status and plan
 
-Last updated **19 Aug 2026**. Keep the date honest — a stale status file is worse
+Last updated **21 Aug 2026**. Keep the date honest — a stale status file is worse
 than none, because it is believed.
 
 ## The plan
@@ -25,7 +25,7 @@ than none, because it is believed.
 | WL OAuth2 with a shared, self-refreshing token cache | `src/wl/token.ts` |
 | WL client asserting `status === "ok"` centrally | `src/wl/client.ts` |
 | Failure classification: auth / transient / permanent | `src/wl/client.ts` |
-| Backoff 1s/5s/25s, requeue 1/5/25 min, jittered | `src/wl/retry.ts` |
+| Backoff 1s/5s/25s, requeue 1/5/25 min (rung from prior-attempt count), jittered; WL Retry-After honoured, requeued if too long to sleep | `src/wl/retry.ts` |
 | Batch runner: pooled, budget-aware, resumable | `src/wl/batch.ts` |
 | Internal trace ids, `runId.seq` | `src/wl/trace.ts` |
 | Structured logging, redaction before fan-out, optional files | `src/logging/` |

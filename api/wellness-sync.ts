@@ -1,7 +1,22 @@
-import { loadConfig } from '../src/config/index.js';
+import { ConfigValidationError, loadConfig } from '../src/config/index.js';
 import { isAuthorizedByAny } from '../src/http/bearer.js';
 import type { HttpRequest, HttpResponse } from '../src/http/types.js';
+import { MissingSecretsError, SecretsProviderError } from '../src/secrets/types.js';
 import { runWellnessSync } from '../src/wl/sync.js';
+
+/**
+ * A config-resolution failure whose message is safe to return: these name the
+ * offending KEYS, never their values, and carry no host - see src/config.
+ * Anything else may carry a host in its message (an undici connect error names
+ * it), so it is reduced to its class name before it can reach the wire.
+ */
+function isConfigError(error: unknown): boolean {
+  return (
+    error instanceof ConfigValidationError ||
+    error instanceof MissingSecretsError ||
+    error instanceof SecretsProviderError
+  );
+}
 
 /**
  * Token-protected WellnessLiving sync trigger, deployed as a Vercel function.
@@ -60,12 +75,24 @@ export default async function handler(req: HttpRequest, res: HttpResponse): Prom
     // a partial run is worse than no cron at all.
     res.status(summary.ok ? 200 : 503).json(summary);
   } catch (error) {
-    // Config errors name the offending KEYS, never their values - see
-    // src/config/schema.ts. Safe to return to an authorized caller.
+    if (isConfigError(error)) {
+      // Names the offending keys, never their values - safe for an authorized
+      // caller, and the actionable message is the point.
+      res.status(500).json({
+        ok: false,
+        error: 'configuration could not be resolved',
+        detail: (error as Error).message,
+      });
+      return;
+    }
+    // Anything else is reduced to its class name. The raw message can carry a
+    // host, which is configuration and must not reach a response body - the same
+    // rule the WL client follows, enforced here at the last boundary before the
+    // wire, where the source-scanning host test cannot reach.
     res.status(500).json({
       ok: false,
-      error: 'configuration could not be resolved',
-      detail: error instanceof Error ? error.message : 'unknown error',
+      error: 'sync failed unexpectedly',
+      detail: error instanceof Error ? error.name : 'unknown error',
     });
   }
 }
