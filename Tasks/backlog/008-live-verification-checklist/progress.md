@@ -32,3 +32,13 @@ credentials (see docs/RUNBOOK.md).
   control/data tables present in dev.
 - This confirms the *link*, not the behavioural rows below — throttle, Retry-After,
   mid-pass token rotation, body reset still need their specific live conditions.
+
+### 2026-08-21 — first live confirmations
+- Verified against live UAT (dev env):
+  - 200-for-errors + a_error[].sid: profile/purchase/list with no uid → HTTP 200,
+    sid "uid-nx", classified permanent. The core envelope the whole client rests on.
+  - k_log per endpoint: business/staff/location = null; /v1/lead/info = "[31.gswzy]".
+    Exactly as trace.ts documents. Row ticked.
+- Still unconfirmable without forcing the condition (a real throttle, a mid-stream
+  reset, a mid-run token rotation, a long Retry-After): those rows stay unchecked.
+  They need fault injection (a proxy) or catching a real throttle in production.

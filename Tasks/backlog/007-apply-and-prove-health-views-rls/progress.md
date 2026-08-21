@@ -26,3 +26,12 @@ Supabase CLI. Needs SQL-editor access or a connection string to proceed.
   (212/212 vitest), but verified only on paper — suite mocks `fetch`, never hits
   Postgres. `STATUS.md:60` still reads "written, not applied". No duplicate task
   exists (001–006 are all WL API-client work).
+
+### 2026-08-21 — blocked on DB connection access
+- Cannot execute from here: applying 0010 is DDL (CREATE VIEW / POLICY), and the
+  isolation checks are SQL scripts (DO blocks, RAISE NOTICE). Neither runs over
+  PostgREST, which is the only Supabase access in .env (SUPABASE_URL + service key).
+- Unblock with EITHER: (a) a Postgres connection string (DATABASE_URL) — psql is
+  installed locally, so the migration + both checks can run from here; OR (b) run
+  0010 and supabase/checks/{rls_bypass_check,rls_isolation_test}.sql in the Supabase
+  SQL editor and paste the notices back.

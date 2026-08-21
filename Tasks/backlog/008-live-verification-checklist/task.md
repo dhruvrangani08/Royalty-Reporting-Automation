@@ -47,9 +47,13 @@ unchecked with a note pointing at the contradiction.
 ## The checklist
 
 ### From task 001 — retry ladder bound
-- [ ] WL genuinely answers a throttle as **HTTP 200 with a transient `status`/`sid`
-      in the body** (not a 429), so the ladder is what catches it. *(Assumed from
-      the architecture doc; not yet seen live on a real throttle.)*
+- [~] WL genuinely answers a throttle as **HTTP 200 with a transient `status`/`sid`
+      in the body** (not a 429), so the ladder is what catches it. **Envelope
+      confirmed live 2026-08-21:** `profile/purchase/list` with no uid returned
+      HTTP **200** with `a_error[].sid = "uid-nx"`, classified `permanent` — so the
+      200-for-errors contract and `sid` extraction are real. A *throttle*
+      specifically (transient sid, not 429) was not triggered; that half is still
+      unconfirmed until a real throttle is seen.
 - [ ] WL sometimes sends a `Retry-After` header, and its units match
       `parseRetryAfter` (seconds or HTTP-date). *(Never observed live — the whole
       Retry-After path is untested against WL.)*
@@ -90,9 +94,10 @@ unchecked with a note pointing at the contradiction.
       read the actual JSON returned.
 
 ### Standing assumptions worth a live look (not tied to one fix)
-- [ ] `k_log` presence per endpoint matches what trace.ts documents (present on
-      `/v1/lead/info`, absent on the sync endpoints). *(Documented 19 Aug 2026;
-      re-confirm before relying on it for support.)*
+- [x] `k_log` presence per endpoint matches what trace.ts documents (present on
+      `/v1/lead/info`, absent on the sync endpoints). **Confirmed live 2026-08-21:**
+      `business`, `staff/list`, `location/list` all returned `k_log: null`;
+      `/v1/lead/info` returned `"[31.gswzy]"`. Exactly as trace.ts records.
 - [ ] WL publishes no rate limit we should pre-empt — confirm with WL Integrations
       rather than inferring from the absence of 429s. *(Ties to STATUS.md's open
       "real rate limits" decision.)*
