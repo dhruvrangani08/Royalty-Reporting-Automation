@@ -98,3 +98,24 @@ State what is blocked rather than guessing around it. Several things in this pro
 genuinely cannot be built yet — see the blocked section of
 [docs/STATUS.md](docs/STATUS.md) — and inventing a plausible substitute would be
 worse than leaving them null and saying so.
+
+## Complex or long tasks: write a PRD first
+
+Anything that spans more than one sitting, more than a few files, or has no obvious
+single answer goes through the `task-manager` skill (`.claude/skills/task-manager/`)
+before code is written. Tasks live in `Tasks/`; conventions are in
+[Tasks/README.md](Tasks/README.md).
+
+**Answer from the codebase before asking a human.** If the goal, scope or acceptance
+criteria are already recorded — in `docs/`, a migration, a test, or the code itself —
+read it. A question whose answer was already written down costs the user a round trip
+and teaches them their docs are not being read.
+
+**Interview only for what the repo cannot answer**, and keep going until the goal is
+genuinely clear — not until the first plausible reading appears. Scope and acceptance
+criteria are what get guessed at; a wrong guess there is discovered at review, after
+the work is done. Then write the PRD into the task and get it confirmed before
+starting.
+
+For a task that is small and unambiguous, skip all of this. A ticket for a one-line
+fix is overhead, and overhead is what stops the system being used at all.
