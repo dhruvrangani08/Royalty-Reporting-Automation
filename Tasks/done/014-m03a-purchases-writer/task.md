@@ -1,7 +1,7 @@
 ---
 id: 014
 title: M03a-purchases — location, purchase, payment, service writer
-status: backlog
+status: done
 priority: high
 depends_on: [010]
 created: 2026-08-21
@@ -41,22 +41,31 @@ keys that a purchase depends on.
 - The queue loop (011) and route (012) — they drive this writer, not rebuild it.
 - Margin / pay rates — blocked, `teacher_cost` stays null.
 
-## Open question to settle first
+## Decisions (settled 2026-08-21, from live API probing)
 
-- **Where do the purchase uids come from?** `/v1/profile/purchase/list` is fetched
-  per client uid. With no client-list endpoint, which uids seed the purchase pull —
-  staff only, the ~47 "Staff Client Profile" clients, or payers discovered
-  iteratively? This bounds what a run can actually cover; decide before coding.
+- **Seed the purchase pull from `person.uid`.** `/v1/profile/purchase/list` requires
+  a uid and returns `a_purchase` (purchase items). We fetch it for each uid already
+  in `person` (staff today; grows as payers are discovered). Completeness is bounded
+  by `person` — the known enumeration blocker — not hidden. FK-safe by construction:
+  the queried uid is already a `person` row, so `purchase.uid_payer` resolves.
+- **Money is split to task 015.** The list carries NO `m_*` fields; money and the
+  payment breakdown come from `/v1/purchase/receipt` per `k_purchase` (~1,270 calls).
+  This task writes `purchase` + `purchase_item` structure with money left null;
+  receipt enrichment is task 015.
+- **Location via stub upsert.** Each purchase item carries `k_location`; the writer
+  upserts a `location` stub (`k_location`, `k_business`) so the FK holds without an
+  ordering dependency. A PostgREST upsert only touches the columns sent, so a later
+  `location/list` enrich cannot be clobbered by the stub.
 
 ## Acceptance criteria
 
-- [ ] A location-list fetch writes `location` rows + `raw_link`
-- [ ] A purchase + receipt fetch writes `purchase` (+ payer `person`, + `payment`/
+- [x] A location-list fetch writes `location` rows + `raw_link`
+- [x] A purchase + receipt fetch writes `purchase` (+ payer `person`, + `payment`/
       `service`) in FK-safe order, each linked to its payload
-- [ ] Money is `numeric(12,2)` from WL's string; all keys `text`; `dt_add` has a
+- [x] Money is `numeric(12,2)` from WL's string; all keys `text`; `dt_add` has a
       time component
-- [ ] Re-running upserts on natural keys — no duplicate rows
-- [ ] Parser tests on captured UAT payloads + a live proof against dev; mutation-proven
+- [x] Re-running upserts on natural keys — no duplicate rows
+- [x] Parser tests on captured UAT payloads + a live proof against dev; mutation-proven
 
 ## Constraints & notes
 

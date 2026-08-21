@@ -13,11 +13,13 @@ than none, because it is believed.
 | **M04** GHL + royalty | Contact matching, royalty calculation | ⬜ not started |
 | **M05** portal | Student portal reading the same database | ⬜ not started |
 
-**M03 has landed its first vertical slice.** The staff path runs end to end against
-dev — Supabase write client, `raw_wl`→`person`→`raw_link` writer, the durable
-`sync_queue` loop, and a bounded `sync_run` pass behind the cron route. Still to
-come: purchases/royalty rows (task 014), the `sync_job_state` page cursor for
-paginated jobs, and `sync_conflict` creation.
+**M03 is running staff and purchases against dev.** The staff path (`person`) and
+the purchase path (`purchase` + `purchase_item`, the royalty rows) both run end to
+end — Supabase write client, writers with `raw_link`, the durable `sync_queue` loop
+with per-work-type claiming, and bounded `sync_run` passes. A live run wrote 109
+purchases + items across the staff uids. Still to come: **money** — `m_*` totals and
+the payment breakdown from `/v1/purchase/receipt` (task 015); the `sync_job_state`
+page cursor; `sync_conflict` creation; and the full client base (blocked upstream).
 
 ## Done
 

@@ -55,6 +55,13 @@ export interface RunQueueOptions {
   readonly limit: number;
   /** Lease length in ms; a claim past it is reclaimable. Keep it > the step budget. */
   readonly leaseMs: number;
+  /**
+   * Only claim these work types. A pass handles one kind of work; without this it
+   * would claim another job's items and hand them to the wrong handler - e.g. a
+   * purchase pass grabbing a leftover staff_list item and reading its target_key
+   * as a uid.
+   */
+  readonly workTypes: readonly string[];
 }
 
 export interface QueueSummary {
@@ -94,6 +101,7 @@ export function outcomeFromWlError(
 export async function enqueue(
   db: SupabaseClient,
   items: ReadonlyArray<{ work_type: string; target_key: string; k_business: string }>,
+  nextAttemptAt?: string,
 ): Promise<number> {
   if (items.length === 0) return 0;
   // ponytail: selects all active targets; scope by work_type if the queue grows.
@@ -104,9 +112,16 @@ export async function enqueue(
   const seen = new Set(active.map(targetKey));
   const fresh = items.filter((i) => !seen.has(targetKey(i)));
   if (fresh.length > 0) {
+    // Set next_attempt_at from the caller's clock, not the DB default. The claim
+    // filters on this same clock, so relying on the server's now() makes a fresh
+    // item look not-yet-eligible whenever the two clocks differ by a hair.
     await db.insert(
       'sync_queue',
-      fresh.map((i) => ({ ...i, state: 'pending' })),
+      fresh.map((i) => ({
+        ...i,
+        state: 'pending',
+        ...(nextAttemptAt === undefined ? {} : { next_attempt_at: nextAttemptAt }),
+      })),
     );
   }
   return fresh.length;
@@ -125,9 +140,10 @@ export async function reclaimExpired(db: SupabaseClient, now: string): Promise<n
 /** Claims up to `limit` eligible items under a lease, compare-and-swap per item. */
 export async function claimBatch(db: SupabaseClient, opts: RunQueueOptions): Promise<QueueItem[]> {
   const expiresAt = new Date(Date.parse(opts.now) + opts.leaseMs).toISOString();
+  const workTypeFilter = `&work_type=in.(${opts.workTypes.join(',')})`;
   const candidates = await db.select<QueueItem>(
     'sync_queue',
-    `state=eq.pending&next_attempt_at=lte.${opts.now}` +
+    `state=eq.pending&next_attempt_at=lte.${opts.now}${workTypeFilter}` +
       `&order=next_attempt_at.asc&limit=${String(opts.limit)}&select=${ITEM_COLUMNS}`,
   );
 

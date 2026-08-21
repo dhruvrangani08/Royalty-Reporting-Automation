@@ -115,7 +115,13 @@ describe('settle', () => {
 });
 
 describe('claimBatch', () => {
-  const opts = { now: NOW, workerId: 'run-1', limit: 5, leaseMs: 55_000 };
+  const opts = {
+    now: NOW,
+    workerId: 'run-1',
+    limit: 5,
+    leaseMs: 55_000,
+    workTypes: ['staff_list'],
+  };
 
   it('claims a candidate whose compare-and-swap wins', async () => {
     const { db } = fakeDb({
@@ -135,6 +141,18 @@ describe('claimBatch', () => {
     expect(await claimBatch(db, opts)).toEqual([]);
   });
 
+  it('claims only the requested work types - no cross-job theft', async () => {
+    let claimQuery = '';
+    const { db } = fakeDb({
+      select: (_t, q) => {
+        claimQuery = q;
+        return [];
+      },
+    });
+    await claimBatch(db, opts);
+    expect(claimQuery).toContain('work_type=in.(staff_list)');
+  });
+
   it('claims under a lease that expires after now', async () => {
     const seen: Array<Record<string, unknown>> = [];
     const { db } = fakeDb({
@@ -151,7 +169,13 @@ describe('claimBatch', () => {
 });
 
 describe('runQueue', () => {
-  const opts = { now: NOW, workerId: 'run-1', limit: 5, leaseMs: 55_000 };
+  const opts = {
+    now: NOW,
+    workerId: 'run-1',
+    limit: 5,
+    leaseMs: 55_000,
+    workTypes: ['staff_list'],
+  };
 
   it('reclaims, claims, runs the handler and settles, counting outcomes', async () => {
     const { db, calls } = fakeDb({

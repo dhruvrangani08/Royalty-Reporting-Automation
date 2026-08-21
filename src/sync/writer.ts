@@ -141,7 +141,7 @@ export async function storeRawWl(db: SupabaseClient, input: StoreRawInput): Prom
 }
 
 /** One raw_link row per typed row, tying it to the payload it was parsed from. */
-async function linkRows(
+export async function linkRows(
   db: SupabaseClient,
   rawWlId: string,
   tableName: string,
