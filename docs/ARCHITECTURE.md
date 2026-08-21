@@ -69,6 +69,8 @@ correctly does not start.
 | Trace ids | [`src/wl/trace.ts`](../src/wl/trace.ts) |
 | One sync pass | [`src/wl/sync.ts`](../src/wl/sync.ts) |
 | Auth reachability probe | [`src/wl/health.ts`](../src/wl/health.ts) |
+| Writing WL responses to Supabase (raw_wl → typed rows → raw_link) | [`src/sync/writer.ts`](../src/sync/writer.ts) |
+| The durable sync_queue loop (claim, settle, requeue, dead-letter) | [`src/sync/queue.ts`](../src/sync/queue.ts) |
 
 Four things about this client are worth knowing before changing it:
 
@@ -111,6 +113,7 @@ same functions. Nothing lives only in an entry point.
 | Running every dependency probe | [`src/health/index.ts`](../src/health/index.ts) |
 | The probe result shape | [`src/health/types.ts`](../src/health/types.ts) |
 | Supabase reachability and key acceptance | [`src/supabase/health.ts`](../src/supabase/health.ts) |
+| Supabase writes/reads (PostgREST over fetch) | [`src/supabase/client.ts`](../src/supabase/client.ts) |
 | Constant-time bearer check for routes | [`src/http/bearer.ts`](../src/http/bearer.ts) |
 | Route request/response shapes | [`src/http/types.ts`](../src/http/types.ts) |
 | Provider selection | [`src/secrets/index.ts`](../src/secrets/index.ts) |
@@ -168,8 +171,9 @@ loadConfig()                     fail closed if anything is missing
   │    └─ per item: client.request()
   │         ├─ traceId assigned
   │         ├─ status === "ok" asserted
-  │         ├─ transient? backoff and retry
-  │         └─ ladder spent? throw with requeueAfterMs
+  │         ├─ transient? backoff and retry (WL Retry-After wins if short)
+  │         └─ spent / long Retry-After? throw with requeueAfterMs
+  │              (WL's delay, else the rung the prior-attempt count picks)
   │
   └─ summary { runId, steps, skipped, tokenFetches }
 ```

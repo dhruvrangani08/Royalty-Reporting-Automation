@@ -212,6 +212,7 @@ describe('the success check cannot be bypassed', () => {
     join('src', 'wl', 'client.ts'), // the WL data path - owns the status check
     join('src', 'wl', 'token.ts'), // the WL oauth2 path - no envelope to check
     join('src', 'supabase', 'health.ts'), // Supabase REST, not WL
+    join('src', 'supabase', 'client.ts'), // Supabase REST writes/reads, not WL
   ]);
 
   /** An actual call site, not a `typeof globalThis.fetch` type annotation. */
