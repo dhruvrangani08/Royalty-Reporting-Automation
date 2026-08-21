@@ -68,11 +68,18 @@ unchecked with a note pointing at the contradiction.
       proxy or a killed connection.)*
 
 ### From task 003 — mid-pass token failure
-- [ ] A token that WL rejects **mid-run** (rotated/revoked under us) returns a 401
+- [~] A token that WL rejects **mid-run** (rotated/revoked under us) returns a 401
       on the data call, and the refetch returns the `invalid_client`-shaped body
-      our message assumes. *(Confirm the credential-rotation path end to end.)*
-- [ ] `WlTokenClient` classifies WL's real token-error responses the way the
+      our message assumes. **Refetch half confirmed live 2026-08-21:** a token
+      request with a wrong secret returns HTTP 400 `invalid_client` — exactly the
+      shape the message assumes. The *mid-run 401 on a data call* half still needs a
+      real credential rotation to observe.
+- [x] `WlTokenClient` classifies WL's real token-error responses the way the
       `auth`/`transient`/`permanent` split assumes (400/401/403 vs 5xx/429).
+      **Confirmed live 2026-08-21:** WL rejects bad credentials with HTTP **400**
+      (`invalid_client`); `classifyStatus` maps 400 → `auth`, not retryable, and
+      real credentials still issue a token. (WL uses 400, not 401/403, for bad
+      creds; the 5xx/429 branches were not triggered.)
 
 ### From task 004 — per-request deadline
 - [ ] A genuinely slow WL call (approaching the 30s per-attempt timeout) combined
