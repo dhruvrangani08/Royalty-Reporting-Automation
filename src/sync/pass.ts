@@ -2,6 +2,7 @@ import type { AppConfig } from '../config/schema.js';
 import { SupabaseClient } from '../supabase/client.js';
 import { WlClient, WlRequestError } from '../wl/client.js';
 import { WL_PATHS } from '../wl/endpoint.js';
+import { closeJobState, openJobState } from './job-state.js';
 import { writePurchaseList } from './purchases.js';
 import { enqueue, outcomeFromWlError, type QueueHandler, runQueue } from './queue.js';
 import { writeReceipt } from './receipts.js';
@@ -222,6 +223,7 @@ async function runPass(
   const handler = spec.makeHandler(ctx);
 
   await openRun(db, ctx.runId, ctx.kBusiness, spec.jobName, iso());
+  await openJobState(db, spec.jobName, ctx.kBusiness, iso());
 
   const totals = { claimed: 0, done: 0, requeued: 0, dead: 0 };
   let failure: string | null = null;
@@ -258,6 +260,7 @@ async function runPass(
     tokenFetches: wl.tokenStatus().fetchCount,
     error: failure,
   });
+  await closeJobState(db, spec.jobName, ctx.kBusiness, iso(), state);
 
   return {
     runId: ctx.runId,

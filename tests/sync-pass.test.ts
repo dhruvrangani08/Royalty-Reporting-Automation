@@ -41,6 +41,10 @@ function fakeDb(script: DbScript = {}) {
       const isClaim = query.includes('id=eq.') && query.includes('select=');
       return Promise.resolve(isClaim ? (script.claimReturns ?? []) : []);
     }),
+    upsert: vi.fn((table: string, rows: unknown[]) => {
+      calls.push({ op: 'upsert', table });
+      return Promise.resolve(rows); // sync_job_state open/close
+    }),
     select: vi.fn((table: string, query: string) => {
       calls.push({ op: 'select', table, query });
       if (query.includes('limit=1000')) return Promise.resolve(script.eligibleRemaining ?? []);

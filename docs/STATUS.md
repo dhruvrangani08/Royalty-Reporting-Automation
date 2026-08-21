@@ -20,9 +20,13 @@ with per-work-type claiming, and bounded `sync_run` passes. A live run wrote 109
 purchases + items across the staff uids. **Money now lands too** (task 015): a
 receipt pass fills `purchase` totals, `purchase_item.m_price_total`,
 `purchase_payment` and `purchase_account_credit` from `/v1/purchase/receipt` — proven
-live (totals like 840/299/280, payment + account-credit rows). Still to come: the
-`sync_job_state` page cursor; `sync_conflict` creation; and the full client base
-(blocked upstream — no client-list endpoint).
+live (totals like 840/299/280, payment + account-credit rows). Each pass also now
+records a `sync_job_state` row — `running` → `idle`/`paused`/`failed`, with
+`last_clean_completion_at` moved only on a clean drain (the watermark a future
+incremental sync will trust). Still to come: the `sync_job_state` **page cursor**
+(`page_number`/`report_handle`, unused until a paginated endpoint like
+`/v1/report/data`); `sync_conflict` creation; and the full client base (blocked
+upstream — no client-list endpoint).
 
 ## Done
 

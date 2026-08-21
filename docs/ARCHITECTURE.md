@@ -74,6 +74,7 @@ correctly does not start.
 | Enriching purchases with money (receipt → totals, payments, credit) | [`src/sync/receipts.ts`](../src/sync/receipts.ts) |
 | The durable sync_queue loop (claim, settle, requeue, dead-letter) | [`src/sync/queue.ts`](../src/sync/queue.ts) |
 | One bounded sync pass (sync_run accounting + queue drain) | [`src/sync/pass.ts`](../src/sync/pass.ts) |
+| Per-job lifecycle + clean-completion watermark (sync_job_state) | [`src/sync/job-state.ts`](../src/sync/job-state.ts) |
 
 Four things about this client are worth knowing before changing it:
 
