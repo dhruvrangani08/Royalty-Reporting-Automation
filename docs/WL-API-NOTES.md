@@ -134,10 +134,17 @@ All GET unless noted. `id_region` and `k_business` are added by the client.
 
 ### Three open questions for the WL integrations team
 
-**1. Is there any endpoint that lists clients?**
+**1. Is there any endpoint that lists clients? — likely the report, but we need its CID.**
 `/v1/login/search/staff-app/list` requires a search term — `{}` returns 6 rows,
-`"a"` returns 17. There is no way to enumerate the client base, which means the
-`person` table can only be filled from the 20 in `/v1/staff/list`.
+`"a"` returns 17 — so it cannot enumerate. The candidate path is the **report**:
+`/v1/report/query` (probed live 21 Aug 2026) is **POST** and requires a
+`cid_report` — a specific positive integer naming which report. Guessed CIDs
+(1/10/100/439) all return `cid-nx` ("does not exist"), so the CIDs are not
+sequential and cannot be discovered by probing.
+**What we need from WL / the WL admin UI:** the `cid_report` of the client report
+(its export URL / config usually shows it). With that CID, `report/query` should
+return the client list (paged, read via `/v1/report/data` by a handle) — the
+foundation for P5 tasks 017–019. Until then `person` fills from the 20 staff only.
 **This is the main blocker on a full sync.**
 
 **2. How is a `k_staff_pay` resolved to an amount?**
